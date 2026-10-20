@@ -19,7 +19,7 @@ class HomeScreenInstrumentedTest {
 
     @Test
     fun homeShowsBrandingAndGoalComposer() {
-        composeRule.onNodeWithText("An AI agent that operates your phone").assertIsDisplayed()
+        composeRule.onNodeWithText("Piko").assertIsDisplayed()
         composeRule.onNodeWithText("What should I do?").assertIsDisplayed()
         composeRule.onNodeWithText("Start task").assertIsDisplayed()
     }

@@ -304,6 +304,8 @@ class LlmClient(
     private suspend fun perform(request: Request, timeoutSeconds: Int): HttpResult =
         suspendCancellableCoroutine { continuation ->
             val client = baseClient.newBuilder()
+                .followRedirects(false)
+                .followSslRedirects(false)
                 .callTimeout(timeoutSeconds.toLong().coerceIn(10, 300), TimeUnit.SECONDS)
                 .readTimeout(timeoutSeconds.toLong().coerceIn(10, 300), TimeUnit.SECONDS)
                 .build()
@@ -358,6 +360,8 @@ class LlmClient(
             .header("Accept", "text/event-stream")
             .build()
         val client = baseClient.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
             .callTimeout(timeoutSeconds.toLong().coerceIn(10, 300), TimeUnit.SECONDS)
             .readTimeout(timeoutSeconds.toLong().coerceIn(10, 300), TimeUnit.SECONDS)
             .build()

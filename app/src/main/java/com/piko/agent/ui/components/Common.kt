@@ -1,7 +1,6 @@
 package com.piko.agent.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,20 +23,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.piko.agent.core.AgentState
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoInk
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -49,73 +40,17 @@ import java.util.Locale
 
 @Composable
 fun PikoBackground(content: @Composable () -> Unit) {
-    val bg = MaterialTheme.colorScheme.background
-    val surface = MaterialTheme.colorScheme.surface
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        bg,
-                        bg,
-                        surface.copy(alpha = 0.55f),
-                    ),
-                ),
-            ),
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(PikoLime.copy(alpha = 0.08f), Color.Transparent),
-                    center = Offset(size.width * 0.9f, size.height * 0.06f),
-                    radius = size.width * 0.7f,
-                ),
-                radius = size.width * 0.7f,
-                center = Offset(size.width * 0.9f, size.height * 0.06f),
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(PikoViolet.copy(alpha = 0.06f), Color.Transparent),
-                    center = Offset(size.width * 0.05f, size.height * 0.6f),
-                    radius = size.width * 0.6f,
-                ),
-                radius = size.width * 0.6f,
-                center = Offset(size.width * 0.05f, size.height * 0.6f),
-            )
-        }
-        content()
-    }
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) { content() }
 }
 
 @Composable
 fun PikoMark(modifier: Modifier = Modifier, size: Int = 40) {
     Box(
-        modifier = modifier
-            .size(size.dp)
-            .clip(RoundedCornerShape((size * 0.32f).dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(PikoLime, Color(0xFFA8E62B)),
-                ),
-            ),
+        modifier.size(size.dp).clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.primary),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = "P",
-            color = PikoInk,
-            style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.Black,
-                fontSize = (size * 0.56f).sp,
-            ),
-        )
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                color = PikoViolet,
-                radius = size * 0.13f,
-                center = Offset(this.size.width * 0.78f, this.size.height * 0.76f),
-            )
-        }
+        Text("P", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleLarge)
     }
 }
 
@@ -151,7 +86,7 @@ fun PikoCard(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)),
-        tonalElevation = 1.dp,
+        tonalElevation = 0.dp,
         content = { Box(Modifier.padding(18.dp)) { content() } },
     )
 }
@@ -193,7 +128,7 @@ fun StatusPill(
         modifier = modifier,
         shape = CircleShape,
         color = color.copy(alpha = 0.14f),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.4f)),
+
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -354,12 +289,13 @@ fun stateLabel(state: AgentState): String = when (state) {
     AgentState.CANCELLED -> "Stopped"
 }
 
+@Composable
 fun stateColor(state: AgentState): Color = when (state) {
     AgentState.IDLE -> PikoMuted
     AgentState.COMPLETED -> PikoMint
     AgentState.FAILED, AgentState.CANCELLED -> PikoRed
     AgentState.PAUSED, AgentState.AWAITING_USER_CONFIRMATION -> PikoAmber
-    else -> PikoLime
+    else -> MaterialTheme.colorScheme.primary
 }
 
 fun formatDuration(ms: Long): String {

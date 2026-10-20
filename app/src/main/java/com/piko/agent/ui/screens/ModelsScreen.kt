@@ -53,7 +53,6 @@ import com.piko.agent.ui.components.PikoCard
 import com.piko.agent.ui.components.SectionHeader
 import com.piko.agent.ui.components.StatusPill
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -93,7 +92,7 @@ fun ModelsScreen(
             PikoCard(Modifier.fillMaxWidth()) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        StatusPill("Active model", PikoLime)
+                        StatusPill("Active model", MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.weight(1f))
                         Text(
                             settings.selectedProvider?.name ?: "None",
@@ -249,7 +248,7 @@ private fun ProviderCard(
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(
             if (selected) 1.5.dp else 1.dp,
-            if (selected) PikoLime.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant,
+            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant,
         ),
         onClick = onClick,
     ) {
@@ -257,13 +256,13 @@ private fun ProviderCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = if (selected) PikoLime.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant,
+                    color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant,
                 ) {
                     Icon(
                         Icons.Filled.SmartToy,
                         contentDescription = null,
                         modifier = Modifier.padding(9.dp).size(20.dp),
-                        tint = if (selected) PikoLime else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Spacer(Modifier.width(11.dp))
@@ -278,7 +277,7 @@ private fun ProviderCard(
                     )
                 }
                 if (selected) {
-                    StatusPill("Active", PikoLime, icon = Icons.Filled.Check)
+                    StatusPill("Active", MaterialTheme.colorScheme.primary, icon = Icons.Filled.Check)
                 } else {
                     TextButton(onClick = onSelect) { Text("Use") }
                 }

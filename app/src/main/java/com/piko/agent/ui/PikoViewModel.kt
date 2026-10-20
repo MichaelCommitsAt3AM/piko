@@ -302,6 +302,26 @@ class PikoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun saveApiKey(providerId: String, value: String): Boolean {
+        if (value.isBlank()) return false
+        return withContext(Dispatchers.IO) {
+            runCatching { credentials.setApiKey(providerId, value.trim()) }.fold(
+                onSuccess = {
+                    _credentialRevision.value += 1
+                    emit("API key saved securely.")
+                    true
+                },
+                onFailure = { emit("Could not save the API key."); false },
+            )
+        }
+    }
+
+    suspend fun removeApiKey(providerId: String) {
+        withContext(Dispatchers.IO) { credentials.deleteApiKey(providerId) }
+        _credentialRevision.value += 1
+        emit("API key removed.")
+    }
+
     fun deleteAllCredentials() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {

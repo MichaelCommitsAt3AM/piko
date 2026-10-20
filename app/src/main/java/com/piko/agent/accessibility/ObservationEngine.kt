@@ -95,6 +95,7 @@ class ObservationEngine(
         val seen = HashSet<String>()
         var visited = 0
         var truncated = false
+        var withholdScreenshot = false
         val appPackage = foregroundPackage
 
         fun traverse(node: AccessibilityNodeInfo?, parentId: String?, clickableAncestor: Boolean, depth: Int) {
@@ -104,7 +105,10 @@ class ObservationEngine(
                 truncated = true
                 return
             }
-            if (depth > MAX_DEPTH) return
+            if (depth > MAX_DEPTH) {
+                truncated = true
+                return
+            }
 
             val nodePackage = node.packageName?.toString() ?: appPackage
             if (nodePackage == context.packageName) return
@@ -127,6 +131,11 @@ class ObservationEngine(
             var childParentId = parentId
             if (keep) {
                 val password = node.isPassword
+                if (SensitiveTextRedactor.shouldWithholdScreenshot(
+                        resourceId, rawHint, className, password, rawText, rawDescription,
+                    )) {
+                    withholdScreenshot = true
+                }
                 val redact = SensitiveTextRedactor.shouldRedact(
                     resourceId = resourceId,
                     hint = rawHint,
@@ -222,7 +231,7 @@ class ObservationEngine(
         var scaleX = 1f
         var scaleY = 1f
         var screenshotBytes: com.piko.agent.model.ScreenshotCapture? = null
-        if (includeScreenshot) {
+        if (includeScreenshot && !withholdScreenshot && !truncated) {
             screenshotEngine.lastSettings = settings
             val shot = screenshotEngine.capture(settings)
             secure = shot.secure

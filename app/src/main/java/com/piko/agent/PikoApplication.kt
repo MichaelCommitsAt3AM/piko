@@ -55,12 +55,19 @@ class PikoApplication : Application() {
             description = "Permission and setup reminders."
             setShowBadge(true)
         }
-        manager.createNotificationChannels(listOf(agent, setup))
+        val approvals = NotificationChannel(
+            CHANNEL_APPROVALS, "Approval requests", NotificationManager.IMPORTANCE_HIGH,
+        ).apply {
+            description = "Permissions and other actions waiting for your approval."
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+        }
+        manager.createNotificationChannels(listOf(agent, setup, approvals))
     }
 
     companion object {
         const val CHANNEL_AGENT = "piko_agent"
         const val CHANNEL_SETUP = "piko_setup"
+        const val CHANNEL_APPROVALS = "piko_approvals"
 
         lateinit var instance: PikoApplication
             private set

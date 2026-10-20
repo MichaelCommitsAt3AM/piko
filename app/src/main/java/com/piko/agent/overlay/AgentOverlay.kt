@@ -1,5 +1,7 @@
 package com.piko.agent.overlay
 
+import android.accessibilityservice.AccessibilityService
+import android.util.Log
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
@@ -31,6 +33,7 @@ class AgentOverlay(
     interface Actions {
         fun onPauseResume()
         fun onStop()
+        fun onVoice()
         fun onReviewConfirmation()
     }
 
@@ -39,6 +42,10 @@ class AgentOverlay(
     private val screenWidth: Int
         get() = context.resources.displayMetrics.widthPixels
 
+    private val overlayType = if (context is AccessibilityService)
+        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    else WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    private val edges = EdgeIndicator(context, overlayType)
     private var params = layoutParams()
     private var expandedView: View? = null
     private var minimizedView: View? = null
@@ -57,36 +64,43 @@ class AgentOverlay(
     private lateinit var minimizeButton: TextView
     private lateinit var bubbleStatusDot: View
 
-    fun canShow(): Boolean = Settings.canDrawOverlays(context)
+    fun canShow(): Boolean = context is AccessibilityService || Settings.canDrawOverlays(context)
 
     fun show(state: AgentRuntimeState) {
         if (!canShow()) return
         if (attached) {
+            if (!OverlaySuppressor.isSuppressed) setVisible(true)
             update(state)
             return
         }
         runCatching {
+            edges.show()
             expandedView = buildExpanded()
             windowManager.addView(expandedView, params)
             attached = true
             expanded = true
-            val suppress: (Boolean) -> Unit = { visible ->
-                expandedView?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-                minimizedView?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-            }
+            val suppress: (Boolean) -> Unit = { visible -> setVisible(visible) }
             suppressController = suppress
             OverlaySuppressor.register(suppress)
             update(state)
+        }.onFailure {
+            hide()
+            Log.w("PikoOverlay", "Could not display floating controls", it)
         }
+    }
+
+    private fun setVisible(visible: Boolean) {
+        expandedView?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        minimizedView?.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        edges.visible(visible)
     }
 
     fun hide() {
         suppressController?.let(OverlaySuppressor::unregister)
         suppressController = null
-        if (!attached) return
-        runCatching {
-            expandedView?.let { windowManager.removeView(it) }
-            minimizedView?.let { windowManager.removeView(it) }
+        edges.hide()
+        listOfNotNull(expandedView, minimizedView).forEach { view ->
+            if (view.parent != null) runCatching { windowManager.removeView(view) }
         }
         expandedView = null
         minimizedView = null
@@ -102,7 +116,8 @@ class AgentOverlay(
         }
         val color = stateColor(state.state)
         statusDot.background = circle(color)
-        bubbleStatusDot.background = circle(color)
+        if (::bubbleStatusDot.isInitialized) bubbleStatusDot.background = circle(color)
+        edges.update(if (state.state == AgentState.PAUSED) color else 0xFF7EB8F5.toInt())
         goalText.text = state.goal.ifBlank { "No task" }
         actionText.text = state.currentAction
             ?: state.pauseReason
@@ -116,7 +131,7 @@ class AgentOverlay(
         }
         pauseButton.text = if (state.state == AgentState.PAUSED) "Resume" else "Pause"
         pauseButton.isEnabled = state.state.isRunning || state.state == AgentState.PAUSED
-        val pauseColor = if (state.state == AgentState.PAUSED) LIME else PANEL_LIGHT
+        val pauseColor = if (state.state == AgentState.PAUSED) ACCENT else PANEL_LIGHT
         pauseButton.setTextColor(if (state.state == AgentState.PAUSED) Color.BLACK else Color.WHITE)
         pauseButton.background = pill(pauseColor)
         stopButton.isEnabled = active
@@ -130,8 +145,8 @@ class AgentOverlay(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(14))
             background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat()
-                setColor(0xF2111623.toInt())
+                cornerRadius = dp(16).toFloat()
+                setColor(0xFF1B1B1B.toInt())
                 setStroke(dp(1), 0x33FFFFFF)
             }
             elevation = dp(12).toFloat()
@@ -145,12 +160,12 @@ class AgentOverlay(
             gravity = Gravity.CENTER_VERTICAL
         }
         statusDot = View(context).apply {
-            background = circle(LIME)
+            background = circle(ACCENT)
             layoutParams = LinearLayout.LayoutParams(dp(9), dp(9)).apply { marginEnd = dp(8) }
         }
         header.addView(statusDot)
         val brand = TextView(context).apply {
-            text = "Piko"
+            text = "Piko control"
             setTextColor(Color.WHITE)
             textSize = 16f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
@@ -184,7 +199,7 @@ class AgentOverlay(
         root.addView(goalText, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
 
         actionText = TextView(context).apply {
-            setTextColor(0xFFD4FF4F.toInt())
+            setTextColor(0xFFBBBBBB.toInt())
             textSize = 12f
             maxLines = 2
         }
@@ -214,6 +229,11 @@ class AgentOverlay(
         stopButton = pillButton("Stop", 0xFFF35B6B.toInt(), Color.WHITE).apply {
             setOnClickListener { actions.onStop() }
         }
+        val voiceButton = pillButton("Talk", PANEL_LIGHT, Color.WHITE).apply {
+            contentDescription = "Talk to Piko"
+            setOnClickListener { actions.onVoice() }
+        }
+        controls.addView(voiceButton)
         controls.addView(reviewButton)
         controls.addView(pauseButton)
         controls.addView(stopButton)
@@ -229,7 +249,7 @@ class AgentOverlay(
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(LIME)
+                setColor(ACCENT)
                 setStroke(dp(2), 0x66000000)
             }
             layoutParams = LinearLayout.LayoutParams(dp(54), dp(54))
@@ -314,7 +334,7 @@ class AgentOverlay(
     private fun layoutParams() = WindowManager.LayoutParams(
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        overlayType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
         PixelFormat.TRANSLUCENT,
@@ -331,7 +351,8 @@ class AgentOverlay(
             textSize = 12f
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
             gravity = Gravity.CENTER
-            setPadding(dp(14), dp(7), dp(14), dp(7))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            minHeight = dp(48)
             background = pill(color)
             isClickable = true
             isFocusable = true
@@ -369,7 +390,7 @@ class AgentOverlay(
         AgentState.PAUSED, AgentState.AWAITING_USER_CONFIRMATION -> 0xFFFFC857.toInt()
         AgentState.FAILED, AgentState.CANCELLED -> 0xFFF35B6B.toInt()
         AgentState.COMPLETED -> 0xFF65E6B4.toInt()
-        else -> LIME
+        else -> ACCENT
     }
 
     private fun openApp() {
@@ -381,7 +402,7 @@ class AgentOverlay(
     private fun dp(value: Int): Int = (value * density).toInt()
 
     companion object {
-        private const val LIME = 0xFFD4FF4F.toInt()
+        private const val ACCENT = 0xFFE5E5E5.toInt()
         private const val PANEL_LIGHT = 0x33FFFFFF
     }
 }

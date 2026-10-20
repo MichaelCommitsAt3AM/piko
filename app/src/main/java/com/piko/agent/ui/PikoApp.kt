@@ -1,6 +1,9 @@
 package com.piko.agent.ui
 
 import android.Manifest
+import android.view.WindowManager
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
@@ -50,6 +53,8 @@ import com.piko.agent.ui.screens.ModelsScreen
 import com.piko.agent.ui.screens.ProviderEditorScreen
 import com.piko.agent.ui.screens.SettingsScreen
 import com.piko.agent.ui.screens.TaskScreen
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -148,6 +153,13 @@ fun PikoApp(viewModel: PikoViewModel) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = destinations.any { it.route == currentRoute }
+    DisposableEffect(currentRoute) {
+        val window = (context as? Activity)?.window
+        if (currentRoute == "settings") window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { }
+    }
+
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -164,28 +176,34 @@ fun PikoApp(viewModel: PikoViewModel) {
         NavHost(
             navController = navController,
             startDestination = "home",
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None },
             modifier = Modifier.padding(innerPadding),
         ) {
             composable("home") {
                 HomeScreen(
                     viewModel = viewModel,
-                    onStartTask = {
-                        viewModel.emit("Task started. Piko is taking over the screen; use the overlay or notification to follow along.")
+                    onStartTask = { previousId ->
+                        navController.navigate("task") { launchSingleTop = true }
                         scope.launch {
-                            delay(850)
-                            context.startActivity(
-                                Intent(Intent.ACTION_MAIN)
-                                    .addCategory(Intent.CATEGORY_HOME)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
+                            val started = withTimeoutOrNull(10_000) {
+                                viewModel.runtime.first { it.taskId != previousId }
+                            }
+                            if (started != null && started.isActive) {
+                                delay(500)
+                                if (viewModel.runtime.value.isActive) {
+                                    context.startActivity(Intent(Intent.ACTION_MAIN)
+                                        .addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }
+                            }
                         }
                     },
                     onOpenTask = { navController.navigate("task") { launchSingleTop = true } },
                     onOpenHistoryTask = { id -> navController.navigate("history/$id") },
                     onOpenModels = { navController.navigate("models") },
                     onOpenAccessibility = openAccessibility,
-                    onOpenOverlay = openOverlay,
-                    onRequestNotifications = requestNotifications,
                 )
             }
             composable("task") {
@@ -211,6 +229,7 @@ fun PikoApp(viewModel: PikoViewModel) {
                 ProviderEditorScreen(
                     viewModel = viewModel,
                     providerId = providerId,
+                    onOpenKeys = { navController.navigate("settings") },
                     onBack = { navController.popBackStack() },
                     onDeleted = { navController.popBackStack() },
                 )

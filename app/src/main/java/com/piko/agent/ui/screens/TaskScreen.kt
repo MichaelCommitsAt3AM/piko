@@ -1,5 +1,8 @@
 package com.piko.agent.ui.screens
 
+import com.piko.agent.VoiceInputActivity
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Mic
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -44,6 +47,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,7 +78,6 @@ import com.piko.agent.ui.components.formatUsd
 import com.piko.agent.ui.components.stateColor
 import com.piko.agent.ui.components.stateLabel
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -84,8 +89,10 @@ fun TaskScreen(
     onBack: () -> Unit,
     onNewTask: () -> Unit,
 ) {
+    val context = LocalContext.current
     val state by viewModel.runtime.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    var showDetails by rememberSaveable { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -102,6 +109,11 @@ fun TaskScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            if (state.isActive) {
+                IconButton(onClick = { VoiceInputActivity.open(context) }) {
+                    Icon(Icons.Filled.Mic, contentDescription = "Talk to Piko")
+                }
             }
             StatePill(state.state)
         }
@@ -180,16 +192,19 @@ fun TaskScreen(
                 }
             }
 
-            if (state.screenshotPreviewJpeg != null) {
-                item {
-                    ScreenshotCard(state.screenshotPreviewJpeg!!)
+            item {
+                TextButton(onClick = { showDetails = !showDetails }) {
+                    Text(if (showDetails) "Hide details" else "Show details")
                 }
             }
-
-            if (state.observation != null) {
-                item {
-                    ObservationCard(state.observation!!)
+            if (showDetails) {
+                if (state.screenshotPreviewJpeg != null) {
+                    item { ScreenshotCard(state.screenshotPreviewJpeg!!) }
                 }
+                if (state.observation != null) {
+                    item { ObservationCard(state.observation!!) }
+                }
+                item { UsageCard(state.usage) }
             }
 
             item {
@@ -214,9 +229,6 @@ fun TaskScreen(
                 }
             }
 
-            item {
-                UsageCard(state.usage)
-            }
         }
 
         TaskControls(
@@ -233,7 +245,7 @@ private fun TaskSummary(state: AgentRuntimeState) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, stateColor(state.state).copy(alpha = 0.35f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -254,28 +266,16 @@ private fun TaskSummary(state: AgentRuntimeState) {
                         if (state.maxSteps > 0) (state.step.toFloat() / state.maxSteps).coerceIn(0f, 1f) else 0f
                     },
                     modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
-                    color = PikoLime,
+                    color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 )
                 Spacer(Modifier.height(10.dp))
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard(
-                    value = if (state.step > 0) "${state.step}" else "—",
-                    label = "Step",
-                    modifier = Modifier.weight(1f),
-                )
-                MetricCard(
-                    value = state.currentApp?.take(18) ?: "—",
-                    label = "Current app",
-                    modifier = Modifier.weight(1f),
-                )
-                MetricCard(
-                    value = state.modelName.take(16).ifBlank { "—" },
-                    label = "Model",
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            Text(
+                "Step ${state.step} of ${state.maxSteps} · ${state.currentApp ?: "Waiting for an app"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (!state.currentAction.isNullOrBlank()) {
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -283,7 +283,7 @@ private fun TaskSummary(state: AgentRuntimeState) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(14.dp),
                             strokeWidth = 2.dp,
-                            color = PikoLime,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     } else {
                         Box(Modifier.size(8.dp).clip(CircleShape).background(stateColor(state.state)))
@@ -292,7 +292,7 @@ private fun TaskSummary(state: AgentRuntimeState) {
                     Text(
                         state.currentAction!!,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = PikoLime,
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -408,7 +408,7 @@ private fun CompletionCard(state: AgentRuntimeState) {
                 Spacer(Modifier.weight(1f))
                 StatusPill(
                     label = when (state.verified) {
-                        true -> "Verified"
+                        true -> "Model-verified"
                         false -> "Unverified"
                         null -> "Reported"
                     },
@@ -602,7 +602,7 @@ private fun UsageCard(usage: TokenUsage) {
             value = formatUsd(usage.costUsd),
             label = "Est. cost",
             modifier = Modifier.weight(1f),
-            accent = PikoLime,
+            accent = MaterialTheme.colorScheme.primary,
         )
     }
 }

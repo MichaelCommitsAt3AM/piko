@@ -70,6 +70,33 @@ class LlmClientTest {
     """.trimIndent()
 
     @Test
+    fun `redirects do not forward credentials for normal or streaming requests`() = runBlocking {
+        val destination = MockWebServer()
+        destination.start()
+        try {
+            for (stream in listOf(false, true)) {
+                server.enqueue(MockResponse().setResponseCode(307)
+                    .addHeader("Location", destination.url("/collect")))
+                destination.enqueue(MockResponse().setBody(chatResponse))
+                val error = runCatching {
+                    client.complete(
+                        config = provider().copy(kind = ProviderKind.ANTHROPIC, protocol = EndpointProtocol.OPENAI_CHAT),
+                        model = provider().selectedModel!!,
+                        apiKey = "private-key",
+                        request = request().copy(stream = stream),
+                        allowInsecureEndpoints = true,
+                    )
+                }.exceptionOrNull()
+                assertTrue(error is LlmException)
+                assertEquals(0, destination.requestCount)
+                assertEquals("private-key", server.takeRequest().getHeader("x-api-key"))
+            }
+        } finally {
+            destination.shutdown()
+        }
+    }
+
+    @Test
     fun `complete sends bearer auth and parses tool call`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(200).setBody(chatResponse))
         val result = client.complete(

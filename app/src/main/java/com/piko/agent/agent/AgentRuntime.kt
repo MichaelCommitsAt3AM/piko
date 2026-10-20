@@ -32,6 +32,7 @@ data class PendingConfirmation(
 data class AgentRuntimeState(
     val taskId: String? = null,
     val goal: String = "",
+    val lastInstruction: String? = null,
     val state: AgentState = AgentState.IDLE,
     val providerName: String = "",
     val modelName: String = "",

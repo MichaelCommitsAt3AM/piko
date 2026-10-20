@@ -55,7 +55,6 @@ import com.piko.agent.ui.components.formatDuration
 import com.piko.agent.ui.components.formatTimestamp
 import com.piko.agent.ui.components.formatUsd
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -150,7 +149,7 @@ private fun TaskTrace(data: TaskWithSteps) {
                         Spacer(Modifier.weight(1f))
                         StatusPill(
                             label = when (task.verified) {
-                                true -> "Verified"
+                                true -> "Model-verified"
                                 false -> "Unverified"
                                 null -> "No claim"
                             },
@@ -199,7 +198,7 @@ private fun TaskTrace(data: TaskWithSteps) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard("${task.stepCount}", "Steps", Modifier.weight(1f))
                 MetricCard(formatDuration(task.durationMs), "Duration", Modifier.weight(1f))
-                MetricCard(formatUsd(task.estimatedCostUsd), "Est. cost", Modifier.weight(1f), PikoLime)
+                MetricCard(formatUsd(task.estimatedCostUsd), "Est. cost", Modifier.weight(1f), MaterialTheme.colorScheme.primary)
             }
         }
 

@@ -11,7 +11,7 @@ Command:
 
 Result at the time of writing:
 
-- **106 tests, 0 failures, 17 suites** (Robolectric + JVM).
+- **135 tests, 0 failures, 22 suites** (Robolectric + JVM).
 - **Lint: passing** (warnings only, mostly newer-version suggestions, Compose
   modifier ordering and localization notes).
 
@@ -19,6 +19,11 @@ Result at the time of writing:
 
 | Suite | What it covers |
 |---|---|
+| `OverlaySuppressorTest` | Restoration after cancellation during the capture settle delay, failed captures, and serializing overlapping captures |
+| `InstructionInboxTest` | Ordered/bounded direct user updates, cancelling pending inference, stale-revision rejection |
+| `ActionContextGuardTest` | Same-app content changes, focus, dialogs, rotation, resizing and stale IDs |
+| `NodeFinderTest` | Reused IDs, changed labels, moved/disabled/hidden targets, package identity and label normalization |
+| `ScreenshotPrivacyTest` | Withholding screenshots for credential fields, OTP text and card descriptions |
 | `ActionValidatorTest` | Action schema, element IDs, coordinate bounds, gestures, text limits, nested confirmations, finish/fail requirements |
 | `ActionParserTest` | Native tool args, wrapped JSON, Markdown fences, prose, direct actions, nested function arguments, brace handling, invalid output |
 | `AgentStateMachineTest` | Allowed/illegal transitions, pause/resume, terminal states |
@@ -31,14 +36,23 @@ Result at the time of writing:
 | `UsageTest` | Per-million cost, cached discount, accumulation |
 | `AgentPromptBuilderTest` | Safety prompt, observation formatting, history, warnings, screenshot note, untrusted-content marker |
 | `LlmProtocolTest` | OpenAI Chat, Responses, Anthropic response parsing; request bodies; model lists; error mapping; key sanitization; endpoint URLs; protocol routing; provider normalization; tool schema |
-| `LlmClientTest` | MockWebServer: auth header, tool-call parsing, 429 retry, 401 non-retry, tool-rejection JSON fallback, connection test inference+discovery, in-flight cancellation, SSE streaming tool-fragment assembly |
+| `LlmClientTest` | MockWebServer: auth header, tool-call parsing, 429 retry, 401 non-retry, tool-rejection JSON fallback, connection test inference+discovery, in-flight cancellation, SSE streaming tool-fragment assembly, redirect rejection for streaming and ordinary requests |
 | `EndpointResolverTest` | OpenCode Go documented endpoint layout, OpenAI/Anthropic URLs, insecure HTTP gate, config normalization |
 | `ScreenshotProcessorTest` | Robolectric: resize, aspect ratio, JPEG encoding, quality clamp |
 | `TaskPersistenceTest` | Robolectric + Room: task/step relation, recent ordering, repository trace, orphan interruption, cascade delete |
 
-A Compose instrumentation smoke test (`HomeScreenInstrumentedTest`) is included and
-compiles (`:app:assembleDebugAndroidTest`), but it was **not executed** because no
-device or emulator was available.
+Device checks on the connected Samsung Galaxy A35 (2026-10-21):
+
+- `HomeScreenInstrumentedTest`: passed.
+- `ApprovalNotificationInstrumentedTest`: passed; verifies high-priority approval notification, Approve/Deny/Review actions and cancellation when resolved.
+- `OverlayInstrumentedTest`: passed; show/update/hide/re-show before any minimization no longer crashes.
+- `ScreenshotPolicyInstrumentedTest`: passed; Home permits screenshots, Settings blocks them, returning Home permits them again.
+- Normal app flow: “Open Calculator.” completed in four steps; Calculator was visibly foreground and the live result reported completion.
+- Spoken recognition, voice steering, and other manual scenarios remain unverified. Voice testing was deferred at the user's request.
+
+Run instrumentation independently of live agent tasks: instrumentation can
+suspend or disconnect accessibility services. Reconnect the already-enabled Piko
+service afterward before testing the normal app flow.
 
 ### What is not automated
 
@@ -55,11 +69,11 @@ These require a real Android device or an emulator with accessibility:
 
 The provider wire protocol, routing, parsing, retries and streaming are covered
 with MockWebServer. Room and screenshot processing are covered with Robolectric.
-No physical-device test is claimed.
+Only the device checks explicitly listed above are claimed.
 
 ---
 
-## Manual end-to-end checklist (not executed here)
+## Manual end-to-end checklist (unverified except where listed above)
 
 Perform on a physical Android 11+ device with a spare account. Start with a
 non-sensitive test account and watch the overlay/notification.
@@ -69,7 +83,7 @@ non-sensitive test account and watch the overlay/notification.
 2. **Display settings** — “Open Settings, go to Display.” Verify the agent
    navigates and the trace shows the taps/verification.
 3. **Enable dark mode** — “Open Settings and turn on dark mode.” Verify the
-   final observation shows the Dark theme selected; finish should be Verified.
+   final observation shows the Dark theme selected; finish should be Model-verified.
 4. **Chrome search** — “Open Chrome and search for ‘Android accessibility’.”
    Verify text entry, search submission, and result observation.
 5. **Calculator** — “Open Calculator and calculate 48 × 7.” Verify 336 is
@@ -104,6 +118,16 @@ non-sensitive test account and watch the overlay/notification.
     accessibility screenshots still work or gracefully fall back.
 18. **Rotation** — Rotate during observation. Verify screen dimensions/rotation
     update and taps still land correctly.
+
+19. **Screen changes during inference/approval** — Navigate within the same app,
+    change focus, or open a dialog while the provider is answering or approval is
+    pending. Verify the old action is withheld and a new observation is requested.
+20. **Screenshot privacy** — Show a password/OTP field or OTP message and request
+    a visual observation. Verify the provider receives no image. Repeat with a
+    truncated tree. Custom-drawn secrets remain outside reliable detection.
+21. **Minimal UI** — Check light/dark mode, large font sizes, keyboard scrolling,
+    model selection, sequential setup, and Show details. Finish a task with history
+    disabled and verify Last task still opens its result.
 
 ---
 

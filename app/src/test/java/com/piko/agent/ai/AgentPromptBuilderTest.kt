@@ -44,6 +44,18 @@ class AgentPromptBuilderTest {
     )
 
     @Test
+    fun `direct user updates are ordered before untrusted screen content`() {
+        val prompt = AgentPromptBuilder.userPrompt(PromptInput(
+            goal = "Open Calculator", step = 2, maxSteps = 40, observation = observation,
+            history = emptyList(), warnings = emptyList(), screenshotIncluded = false,
+            sameScreenCount = 0, usingNativeTools = true,
+            userUpdates = listOf("Calculate 48 times 7", "Instead calculate 12 times 12"),
+        ))
+        assertTrue(prompt.indexOf("DIRECT USER UPDATES") < prompt.indexOf("UNTRUSTED SCREEN CONTENT"))
+        assertTrue(prompt.indexOf("1. Calculate 48 times 7") < prompt.indexOf("2. Instead calculate 12 times 12"))
+    }
+
+    @Test
     fun `system prompt contains safety and action instructions`() {
         val prompt = AgentPromptBuilder.systemPrompt()
         assertTrue(prompt.contains("UNTRUSTED DATA"))

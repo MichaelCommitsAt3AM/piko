@@ -74,7 +74,6 @@ import com.piko.agent.ui.components.PikoCard
 import com.piko.agent.ui.components.SectionHeader
 import com.piko.agent.ui.components.StatusPill
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -85,6 +84,7 @@ import kotlinx.coroutines.launch
 fun ProviderEditorScreen(
     viewModel: PikoViewModel,
     providerId: String,
+    onOpenKeys: () -> Unit,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
 ) {
@@ -111,6 +111,7 @@ fun ProviderEditorScreen(
     ProviderEditorContent(
         viewModel = viewModel,
         initial = provider,
+        onOpenKeys = onOpenKeys,
         canDelete = settings.providerConfigs.size > 1,
         onBack = onBack,
         onDeleted = onDeleted,
@@ -121,15 +122,13 @@ fun ProviderEditorScreen(
 private fun ProviderEditorContent(
     viewModel: PikoViewModel,
     initial: ProviderConfig,
+    onOpenKeys: () -> Unit,
     canDelete: Boolean,
     onBack: () -> Unit,
     onDeleted: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var draft by remember(initial.id) { mutableStateOf(initial) }
-    var apiKey by remember { mutableStateOf("") }
-    var showKey by remember { mutableStateOf(false) }
-    var clearKey by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var fetching by remember { mutableStateOf(false) }
@@ -139,7 +138,6 @@ private fun ProviderEditorContent(
     var newModelId by remember { mutableStateOf("") }
     var protocolMenu by remember { mutableStateOf(false) }
     var modelProtocolMenu by remember { mutableStateOf(false) }
-    val hasStoredKey = remember(initial.id) { viewModel.hasApiKey(initial.id) }
     val selectedModel = draft.selectedModel
 
     fun updateSelected(transform: (ModelConfig) -> ModelConfig) {
@@ -185,7 +183,7 @@ private fun ProviderEditorContent(
                     onClick = {
                         scope.launch {
                             saving = true
-                            val ok = viewModel.saveProvider(draft, apiKey, clearKey)
+                            val ok = viewModel.saveProvider(draft, "")
                             saving = false
                             if (ok) onBack()
                         }
@@ -214,8 +212,8 @@ private fun ProviderEditorContent(
             if (draft.kind == ProviderKind.OPENCODE_GO) {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
-                    color = PikoLime.copy(alpha = 0.07f),
-                    border = BorderStroke(1.dp, PikoLime.copy(alpha = 0.25f)),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.07f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
                 ) {
                     Text(
                         "OpenCode Go uses the documented inference endpoint, Bearer auth, and a stable session header. Piko routes each model to its OpenAI, Responses, or Anthropic-compatible endpoint automatically.",
@@ -259,48 +257,7 @@ private fun ProviderEditorContent(
                         },
                         isError = draft.baseUrl.startsWith("http://"),
                     )
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = { apiKey = it; if (it.isNotBlank()) clearKey = false },
-                        label = { Text("API key") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        enabled = !clearKey,
-                        placeholder = {
-                            Text(
-                                when {
-                                    clearKey -> "Key will be removed"
-                                    hasStoredKey -> "•••••••••••• (saved securely)"
-                                    else -> "Paste API key"
-                                },
-                            )
-                        },
-                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showKey = !showKey }) {
-                                Icon(
-                                    if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                    contentDescription = if (showKey) "Hide key" else "Show key",
-                                )
-                            }
-                        },
-                        supportingText = {
-                            Text(
-                                if (hasStoredKey) {
-                                    "The saved key is encrypted with Android Keystore. Leave blank to keep it. Never logged."
-                                } else {
-                                    "Stored with AES-256-GCM in Android Keystore. Never logged."
-                                },
-                            )
-                        },
-                    )
-                    if (hasStoredKey) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(checked = clearKey, onCheckedChange = { clearKey = it })
-                            Spacer(Modifier.width(8.dp))
-                            Text("Remove saved API key", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+                    TextButton(onClick = onOpenKeys) { Text("Manage API keys in Settings") }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.weight(1f)) {
                             OutlinedButton(onClick = { protocolMenu = true }, modifier = Modifier.fillMaxWidth()) {
@@ -363,7 +320,7 @@ private fun ProviderEditorContent(
                             onClick = {
                                 scope.launch {
                                     fetching = true
-                                    val result = viewModel.fetchModels(draft, apiKey)
+                                    val result = viewModel.fetchModels(draft, "")
                                     fetching = false
                                     result.onSuccess { remote ->
                                         val merged = viewModel.enrichModels(draft, remote)
@@ -536,7 +493,7 @@ private fun ProviderEditorContent(
                         onClick = {
                             scope.launch {
                                 testing = true
-                                testResult = viewModel.testConnection(draft.normalized(), apiKey)
+                                testResult = viewModel.testConnection(draft.normalized(), "")
                                 testing = false
                             }
                         },

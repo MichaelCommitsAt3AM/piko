@@ -41,6 +41,9 @@ class ActionExecutor(private val context: Context) {
         settings: PikoSettings,
     ): ExecutionResult {
         val started = System.currentTimeMillis()
+        if (action.elementId != null && action.elementId !in refs) {
+            return fail("Element ${action.elementId} is stale. Observe the screen again.")
+        }
         val service = AccessibilityBridge.service
             ?: return ExecutionResult(
                 success = false,
@@ -356,7 +359,12 @@ class ActionExecutor(private val context: Context) {
         } else {
             service.focusedEditable()
         } ?: return fail("No editable field was found.")
-        if (node.isPassword) return fail("Piko does not modify password fields.")
+        if (com.piko.agent.core.SensitiveApps.isBlocked(node.packageName?.toString()) ||
+            SensitiveTextRedactor.shouldRedact(
+                node.viewIdResourceName, node.hintText?.toString(),
+                node.className?.toString(), node.isPassword,
+            )
+        ) return fail("Piko does not modify credential fields or blocked apps.")
         val accepted = service.setNodeText(node, "")
         return if (accepted) {
             ExecutionResult(true, "Cleared the text field.", acceptedByAndroid = true)
@@ -429,32 +437,39 @@ class ActionExecutor(private val context: Context) {
 internal object NodeFinder {
     fun find(service: PikoAccessibilityService, ref: ElementRef): AccessibilityNodeInfo? {
         val root = service.rootInActiveWindow ?: return null
-        var best: AccessibilityNodeInfo? = null
-        var bestScore = 0
-
-        fun visit(node: AccessibilityNodeInfo?, depth: Int) {
-            if (node == null || depth > 60) return
-            val rect = Rect()
-            node.getBoundsInScreen(rect)
-            var score = 0
-            if (ref.resourceId != null && node.viewIdResourceName == ref.resourceId) score += 5
-            if (ref.text != null && ref.text != "[redacted]" && node.text?.toString() == ref.text) score += 4
-            if (ref.description != null && node.contentDescription?.toString() == ref.description) score += 3
-            if (ref.className != null && node.className?.toString() == ref.className) score += 1
-            val centerDistance = abs(rect.centerX() - ref.bounds.centerX) + abs(rect.centerY() - ref.bounds.centerY)
-            if (centerDistance <= 24) score += 4
-            if (score > bestScore && rect.width() > 0) {
-                bestScore = score
-                best = node
-            }
+        fun visit(node: AccessibilityNodeInfo?, depth: Int): AccessibilityNodeInfo? {
+            if (node == null || depth > 60) return null
+            if (matches(node, ref)) return node
             for (index in 0 until node.childCount) {
-                visit(node.getChild(index), depth + 1)
+                visit(node.getChild(index), depth + 1)?.let { return it }
             }
+            return null
         }
-
-        visit(root, 0)
-        return if (bestScore >= 5) best else null
+        return visit(root, 0)
     }
+
+    internal fun matches(node: AccessibilityNodeInfo, ref: ElementRef): Boolean {
+        if (!node.isVisibleToUser || !node.isEnabled) return false
+        if (node.packageName?.toString() != ref.packageName) return false
+        if (ref.className != null && node.className?.toString() != ref.className) return false
+        if (ref.resourceId != null && node.viewIdResourceName != ref.resourceId) return false
+        if (ref.text != null && ref.text != "[redacted]" && observedLabel(node.text) != ref.text) return false
+        if (ref.description != null && ref.description != "[redacted]" &&
+            observedLabel(node.contentDescription) != ref.description) return false
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        return rect.width() > 0 && rect.height() > 0 &&
+            abs(rect.left - ref.bounds.left) <= 24 &&
+            abs(rect.top - ref.bounds.top) <= 24 &&
+            abs(rect.right - ref.bounds.right) <= 24 &&
+            abs(rect.bottom - ref.bounds.bottom) <= 24
+    }
+
+    // Use the same whitespace/length normalization as ObservationEngine.
+    private fun observedLabel(value: CharSequence?): String? =
+        SensitiveTextRedactor.redactVisibleText(
+            value?.toString()?.replace(Regex("\\s+"), " ")?.trim()?.take(180),
+        )
 
     fun clickableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
         var current = node

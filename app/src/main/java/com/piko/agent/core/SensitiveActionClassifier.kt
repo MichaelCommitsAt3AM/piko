@@ -205,6 +205,17 @@ object SensitiveTextRedactor {
         return sensitiveKeys.any { haystack.contains(it) }
     }
 
+    /** Tree redaction cannot hide pixels in a screenshot; withhold that frame. */
+    fun shouldWithholdScreenshot(
+        resourceId: String?,
+        hint: String?,
+        className: String?,
+        isPassword: Boolean,
+        text: String?,
+        description: String?,
+    ): Boolean = shouldRedact(resourceId, hint, className, isPassword) ||
+        redactVisibleText(text) != text || redactVisibleText(description) != description
+
     fun redact(value: String?): String? {
         if (value.isNullOrBlank()) return value
         return "[redacted]"

@@ -8,10 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.piko.agent.VoiceInputActivity
 import com.piko.agent.MainActivity
 import com.piko.agent.PikoApplication
 import com.piko.agent.R
@@ -41,10 +43,11 @@ import java.util.UUID
 
 class AgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var controller: AgentController? = null
+    @Volatile private var controller: AgentController? = null
     private var taskJob: Job? = null
     private var cleanupJob: Job? = null
     private var overlay: AgentOverlay? = null
+    private var notifiedConfirmationId: String? = null
     private var startedForeground = false
     private var currentGoal: String = ""
     private var screenReceiver: BroadcastReceiver? = null
@@ -68,8 +71,9 @@ class AgentService : Service() {
         scope.launch {
             AgentRuntime.state.collectLatest { state ->
                 withContext(Dispatchers.Main) {
-                    overlay?.update(state)
+                    if (state.isActive) overlay?.show(state) else overlay?.update(state)
                     if (startedForeground) updateNotification(state)
+                    updateApprovalNotification(state)
                 }
             }
         }
@@ -96,11 +100,26 @@ class AgentService : Service() {
                 }
                 launchTask(currentGoal)
             }
+            ACTION_INSTRUCT -> {
+                if (intent.getStringExtra(EXTRA_TASK_ID) == AgentRuntime.state().taskId) {
+                    val text = intent.getStringExtra(EXTRA_INSTRUCTION).orEmpty()
+                    if (text.trim().lowercase() in setOf("stop", "stop task", "cancel task")) stopTask()
+                    else controller?.steer(text)
+                }
+            }
+            ACTION_BEGIN_INPUT -> if (intent.getStringExtra(EXTRA_TASK_ID) == AgentRuntime.state().taskId) {
+                controller?.beginInput(intent.getStringExtra(EXTRA_SESSION).orEmpty())
+            }
+            ACTION_END_INPUT -> if (intent.getStringExtra(EXTRA_TASK_ID) == AgentRuntime.state().taskId) {
+                val text = intent.getStringExtra(EXTRA_INSTRUCTION)
+                if (text?.trim()?.lowercase() in setOf("stop", "stop task", "cancel task")) stopTask()
+                else controller?.endInput(intent.getStringExtra(EXTRA_SESSION).orEmpty(), text)
+            }
             ACTION_PAUSE -> controller?.pause("Paused by the user.")
             ACTION_RESUME -> controller?.resume()
             ACTION_STOP -> stopTask()
-            ACTION_APPROVE -> controller?.approveConfirmation()
-            ACTION_DENY -> controller?.denyConfirmation()
+            ACTION_APPROVE -> if (matchesConfirmation(intent)) controller?.approveConfirmation()
+            ACTION_DENY -> if (matchesConfirmation(intent)) controller?.denyConfirmation()
             ACTION_OPEN_APP -> {
                 startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
@@ -184,7 +203,7 @@ class AgentService : Service() {
             val observationEngine = ObservationEngine(this@AgentService, screenshotEngine)
             val executor = ActionExecutor(this@AgentService)
             val taskController = AgentController(
-                context = this@AgentService,
+                context = AccessibilityBridge.service ?: this@AgentService,
                 taskId = taskId,
                 goal = goal,
                 settings = settings,
@@ -197,8 +216,8 @@ class AgentService : Service() {
                 actionExecutor = executor,
             )
             controller = taskController
-            prepareOverlay(settings)
             try {
+                prepareOverlay(settings)
                 taskController.run()
             } catch (cancelled: CancellationException) {
                 // Cancellation is finalized inside the controller.
@@ -249,10 +268,10 @@ class AgentService : Service() {
         }
     }
 
-    private fun prepareOverlay(settings: PikoSettings) {
-        if (!settings.overlayEnabled) return
+    private suspend fun prepareOverlay(settings: PikoSettings) = withContext(Dispatchers.Main) {
+        if (!settings.overlayEnabled) return@withContext
         val manager = AgentOverlay(
-            context = this,
+            context = AccessibilityBridge.service ?: this@AgentService,
             actions = object : AgentOverlay.Actions {
                 override fun onPauseResume() {
                     val state = AgentRuntime.state().state
@@ -263,6 +282,10 @@ class AgentService : Service() {
                     stopTask()
                 }
 
+                override fun onVoice() {
+                    VoiceInputActivity.open(this@AgentService)
+                }
+
                 override fun onReviewConfirmation() {
                     startActivity(Intent(this@AgentService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 }
@@ -270,14 +293,7 @@ class AgentService : Service() {
         )
         if (manager.canShow()) {
             overlay = manager
-            with(manager) {
-                // show is main-thread only because it touches WindowManager.
-            }
-            scope.launch {
-                withContext(Dispatchers.Main) {
-                    manager.show(AgentRuntime.state())
-                }
-            }
+
         }
     }
 
@@ -301,12 +317,46 @@ class AgentService : Service() {
     private fun stopTask() {
         val active = controller
         if (active == null) {
-            AgentRuntime.markInterrupted("The task was stopped before it started.")
+            taskJob?.cancel(CancellationException("Stopped before preparation completed"))
+            AgentRuntime.complete("Task cancelled before it started.", false, null, AgentState.CANCELLED)
             onTaskFinished()
             return
         }
         active.requestStop()
         taskJob?.cancel(CancellationException("Stopped by user"))
+    }
+
+    private fun matchesConfirmation(intent: Intent): Boolean {
+        val requested = intent.getStringExtra(EXTRA_CONFIRMATION_ID)
+        return requested == null || requested == AgentRuntime.state().pendingConfirmation?.id
+    }
+
+    private fun updateApprovalNotification(state: AgentRuntimeState) {
+        val pending = state.pendingConfirmation
+        if (notifiedConfirmationId == pending?.id) return
+        val manager = getSystemService(android.app.NotificationManager::class.java)
+        manager.cancel(APPROVAL_NOTIFICATION_ID)
+        notifiedConfirmationId = pending?.id
+        if (pending == null) return
+        val review = PendingIntent.getActivity(
+            this, 15, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(this, PikoApplication.CHANNEL_APPROVALS)
+            .setSmallIcon(R.drawable.ic_stat_piko)
+            .setContentTitle("Piko needs your approval")
+            .setContentText(pending.summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("${pending.summary}\n\n${pending.reason}"))
+            .setContentIntent(review)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOngoing(true)
+            .addAction(0, "Approve", servicePendingIntent(ACTION_APPROVE, 16, pending.id))
+            .addAction(0, "Deny", servicePendingIntent(ACTION_DENY, 17, pending.id))
+            .addAction(0, "Review", review)
+            .build()
+        manager.notify(APPROVAL_NOTIFICATION_ID, notification)
     }
 
     private fun updateNotification(state: AgentRuntimeState) {
@@ -364,20 +414,29 @@ class AgentService : Service() {
             builder.addAction(0, "Review", openIntent)
         }
         if (state.state.isRunning || state.state == AgentState.PAUSED) {
+            builder.addAction(0, "Talk", PendingIntent.getActivity(
+                this, 14, Intent(this, VoiceInputActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            ))
             builder.addAction(0, "Stop", servicePendingIntent(ACTION_STOP, 12))
         }
         return builder.build()
     }
 
-    private fun servicePendingIntent(action: String, requestCode: Int): PendingIntent =
+    private fun servicePendingIntent(action: String, requestCode: Int, confirmationId: String? = null): PendingIntent =
         PendingIntent.getService(
-            this,
-            requestCode,
-            Intent(this, AgentService::class.java).setAction(action),
+            this, requestCode,
+            Intent(this, AgentService::class.java).setAction(action).apply {
+                if (confirmationId != null) {
+                    putExtra(EXTRA_CONFIRMATION_ID, confirmationId)
+                    data = Uri.parse("piko://approval/$confirmationId/$requestCode")
+                }
+            },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
     override fun onDestroy() {
+        getSystemService(android.app.NotificationManager::class.java).cancel(APPROVAL_NOTIFICATION_ID)
         screenReceiver?.let { runCatching { unregisterReceiver(it) } }
         screenReceiver = null
         overlay?.hide()
@@ -396,6 +455,8 @@ class AgentService : Service() {
 
     companion object {
         private const val NOTIFICATION_ID = 41
+        internal const val APPROVAL_NOTIFICATION_ID = 42
+        private const val EXTRA_CONFIRMATION_ID = "confirmationId"
         private const val ACTION_START = "com.piko.agent.action.START_TASK"
         private const val ACTION_PAUSE = "com.piko.agent.action.PAUSE_TASK"
         private const val ACTION_RESUME = "com.piko.agent.action.RESUME_TASK"
@@ -403,6 +464,12 @@ class AgentService : Service() {
         private const val ACTION_APPROVE = "com.piko.agent.action.APPROVE"
         private const val ACTION_DENY = "com.piko.agent.action.DENY"
         private const val ACTION_OPEN_APP = "com.piko.agent.action.OPEN_APP"
+        private const val ACTION_INSTRUCT = "com.piko.agent.action.INSTRUCT"
+        private const val ACTION_BEGIN_INPUT = "com.piko.agent.action.BEGIN_INPUT"
+        private const val ACTION_END_INPUT = "com.piko.agent.action.END_INPUT"
+        private const val EXTRA_TASK_ID = "taskId"
+        private const val EXTRA_SESSION = "inputSession"
+        private const val EXTRA_INSTRUCTION = "instruction"
         private const val EXTRA_GOAL = "goal"
 
         fun start(context: Context, goal: String) {
@@ -411,6 +478,14 @@ class AgentService : Service() {
                 putExtra(EXTRA_GOAL, goal)
             }
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun instruct(context: Context, taskId: String, text: String) = inputCommand(context, ACTION_INSTRUCT, taskId, "", text)
+        fun beginInput(context: Context, taskId: String, session: String) = inputCommand(context, ACTION_BEGIN_INPUT, taskId, session, null)
+        fun endInput(context: Context, taskId: String, session: String, text: String?) = inputCommand(context, ACTION_END_INPUT, taskId, session, text)
+        private fun inputCommand(context: Context, action: String, taskId: String, session: String, text: String?) {
+            context.startService(Intent(context, AgentService::class.java).setAction(action)
+                .putExtra(EXTRA_TASK_ID, taskId).putExtra(EXTRA_SESSION, session).putExtra(EXTRA_INSTRUCTION, text))
         }
 
         fun pause(context: Context) {

@@ -12,6 +12,7 @@ import com.piko.agent.ai.LlmRequest
 import com.piko.agent.ai.ObservationFormatter
 import com.piko.agent.ai.PromptInput
 import com.piko.agent.ai.TurnContext
+import com.piko.agent.core.ActionContextGuard
 import com.piko.agent.core.ActionParser
 import com.piko.agent.core.ActionValidator
 import com.piko.agent.core.ActionType
@@ -59,6 +60,9 @@ class AgentController(
 ) {
     private val stateMachine = AgentStateMachine()
     private val loopDetector = LoopDetector()
+    private val instructions = InstructionInbox()
+    private var inputSession: String? = null
+    private var resumeAfterInput = false
     private val pauseGate = MutableStateFlow(false)
     private var pausedAtMs: Long? = null
     private var totalPausedMs: Long = 0
@@ -81,8 +85,30 @@ class AgentController(
 
     val isFinished: Boolean get() = finished
 
+    fun steer(text: String) {
+        if (finished || stopRequested || !instructions.add(text)) return
+        confirmationDeferred?.complete(false)
+        AgentRuntime.update { it.copy(lastInstruction = text.trim().take(2000)) }
+        AgentRuntime.addTimeline(AgentState.REASONING, "New instruction", text.trim().take(2000))
+    }
+
+    fun beginInput(session: String) {
+        if (inputSession != null || finished || stopRequested) return
+        inputSession = session
+        resumeAfterInput = !pauseRequested
+        if (resumeAfterInput) pause("Listening for your instruction.")
+    }
+
+    fun endInput(session: String, text: String?) {
+        if (inputSession != session) return
+        inputSession = null
+        if (!text.isNullOrBlank()) steer(text)
+        if (resumeAfterInput) resume()
+        resumeAfterInput = false
+    }
+
     fun pause(reason: String) {
-        if (finished || stopRequested) return
+        if (finished || stopRequested || pauseRequested) return
         if (AgentRuntime.state().state.isTerminal) return
         pauseRequested = true
         pauseGate.value = true
@@ -299,6 +325,7 @@ class AgentController(
                 }
 
                 transition(AgentState.REASONING)
+                val instructionSnapshot = instructions.state.value
                 val request = LlmRequest(
                     systemPrompt = AgentPromptBuilder.systemPrompt(),
                     userPrompt = AgentPromptBuilder.userPrompt(
@@ -312,6 +339,7 @@ class AgentController(
                             screenshotIncluded = result.screenshot != null,
                             sameScreenCount = sameScreenCount,
                             usingNativeTools = model.supportsTools,
+                            userUpdates = instructionSnapshot.messages,
                         ),
                     ),
                     imageJpeg = result.screenshot?.bytes,
@@ -327,21 +355,23 @@ class AgentController(
                     settings.debugLogging,
                 )
                 val response = try {
-                    llmClient.complete(
-                        config = provider,
-                        model = model,
-                        apiKey = apiKey,
-                        request = request,
-                        allowInsecureEndpoints = settings.allowInsecureEndpoints,
-                        onRetry = { message ->
-                            AgentRuntime.addTimeline(
-                                AgentState.REASONING,
-                                "Provider retry",
-                                message,
-                                step = step,
-                            )
-                        },
-                    )
+                    instructions.whileCurrent(instructionSnapshot.revision) {
+                        llmClient.complete(
+                            config = provider,
+                            model = model,
+                            apiKey = apiKey,
+                            request = request,
+                            allowInsecureEndpoints = settings.allowInsecureEndpoints,
+                            onRetry = { message ->
+                                AgentRuntime.addTimeline(
+                                    AgentState.REASONING,
+                                    "Provider retry",
+                                    message,
+                                    step = step,
+                                )
+                            },
+                        )
+                    } ?: continue
                 } catch (error: LlmException) {
                     finish(
                         AgentState.FAILED,
@@ -383,6 +413,7 @@ class AgentController(
                     return
                 }
 
+                if (instructions.state.value.revision != instructionSnapshot.revision) continue
                 val parsed = ActionParser.parse(response.actionCandidate)
                 val action = when (parsed) {
                     is ActionParser.ActionParseResult.Success -> parsed.action
@@ -476,7 +507,6 @@ class AgentController(
 
                 var actionToExecute = action
                 var preApproved = false
-                var approvedExecution = false
                 if (action.type == ActionType.REQUEST_CONFIRMATION) {
                     val pendingAction = action.pendingAction
                     val pendingSensitivity = pendingAction?.let { pending ->
@@ -545,7 +575,6 @@ class AgentController(
                     }
                     actionToExecute = pendingAction
                     preApproved = true
-                    approvedExecution = true
                 }
 
                 if (actionToExecute.type == ActionType.OBSERVE) {
@@ -592,7 +621,10 @@ class AgentController(
                     }
                     continue
                 }
-                if (sensitivity.requiresConfirmation && settings.confirmSensitiveActions && !preApproved) {
+                if (sensitivity.requiresConfirmation &&
+                    (settings.confirmSensitiveActions || sensitivity.category == SensitiveActionClassifier.Category.AUTHENTICATION) &&
+                    !preApproved
+                ) {
                     val approved = askConfirmation(
                         action = actionToExecute,
                         summary = confirmationSummary(actionToExecute, currentObservation, refs),
@@ -613,13 +645,22 @@ class AgentController(
                         )
                         continue
                     }
-                    approvedExecution = true
                 }
 
                 if (pauseGate.value) awaitResume()
                 throwIfStopped()
 
-                if (!verifyLiveContext(currentObservation, actionToExecute, approvedExecution)) {
+                if (activeElapsed(startedAt) >= maxDurationMs) {
+                    finish(
+                        AgentState.FAILED, null,
+                        "Maximum task duration (${settings.maxDurationMinutes} minutes) reached.",
+                        false, null, terminalHandled = true,
+                    )
+                    return
+                }
+
+                if (instructions.state.value.revision != instructionSnapshot.revision) continue
+                if (!verifyLiveContext(currentObservation)) {
                     pendingWarnings += "The screen changed or Piko's own interface was in front before the action could run. Observe again and choose a safe next action."
                     AgentRuntime.addTimeline(
                         AgentState.REASONING,
@@ -631,14 +672,21 @@ class AgentController(
                     continue
                 }
 
-                if (pauseGate.value) awaitResume()
+                if (pauseGate.value) {
+                    awaitResume()
+                    continue
+                }
                 throwIfStopped()
                 if (stateMachine.state != AgentState.REASONING) {
                     transition(AgentState.REASONING)
                 }
                 transition(AgentState.EXECUTING)
-                if (pauseGate.value) awaitResume()
+                if (pauseGate.value) {
+                    awaitResume()
+                    continue
+                }
                 throwIfStopped()
+                if (instructions.state.value.revision != instructionSnapshot.revision) continue
                 val actionBrief = ObservationFormatter.actionBrief(actionToExecute)
                 AgentRuntime.setAction(actionLabel(actionToExecute, refs))
                 AgentRuntime.addTimeline(
@@ -892,68 +940,11 @@ class AgentController(
     private fun isSelfForegroundError(error: String?): Boolean =
         error?.contains("Piko's own interface", ignoreCase = true) == true
 
-    private suspend fun verifyLiveContext(
-        before: ScreenObservation,
-        action: AgentAction,
-        afterUserApproval: Boolean,
-    ): Boolean {
-        val livePackage = try {
-            AccessibilityBridge.service?.rootInActiveWindow?.packageName?.toString()
-        } catch (_: Exception) {
-            null
-        } ?: return false
-        if (livePackage == context.packageName) {
-            val handoff = waitForScreenHandoff(false) ?: return false
-            val fresh = handoff.observation ?: return false
-            return verifyApprovedTarget(before, action, fresh)
-        }
-        if (before.foregroundPackage != null && livePackage != before.foregroundPackage) {
-            return false
-        }
-        if (afterUserApproval) {
-            val fresh = observeWithRetry(includeScreenshot = false).observation ?: return false
-            return verifyApprovedTarget(before, action, fresh)
-        }
-        return true
-    }
-
-    /**
-     * An approval is tied to a target. If the screen changed while the user was
-     * deciding, an element action is allowed only when the same labelled element
-     * is still present near the same place. Coordinate gestures require an
-     * unchanged fingerprint.
-     */
-    private fun verifyApprovedTarget(
-        before: ScreenObservation,
-        action: AgentAction,
-        fresh: ScreenObservation,
-    ): Boolean {
-        if (before.foregroundPackage != null && fresh.foregroundPackage != before.foregroundPackage) {
-            return false
-        }
-        val elementId = action.elementId
-        if (elementId == null) {
-            return when (action.type) {
-                ActionType.LAUNCH_APP, ActionType.WAIT, ActionType.BACK, ActionType.HOME,
-                ActionType.OPEN_NOTIFICATIONS -> true
-                else -> fresh.fingerprint == before.fingerprint
-            }
-        }
-        val reference = before.elements.firstOrNull { it.id == elementId } ?: return false
-        val match = fresh.elements
-            .filter { candidate ->
-                (reference.resourceId != null && candidate.resourceId == reference.resourceId) ||
-                    (reference.text != null && reference.text != "[redacted]" && candidate.text == reference.text) ||
-                    (reference.description != null && candidate.description == reference.description)
-            }
-            .minByOrNull { candidate ->
-                kotlin.math.abs(candidate.bounds.centerX - reference.bounds.centerX) +
-                    kotlin.math.abs(candidate.bounds.centerY - reference.bounds.centerY)
-            }
-            ?: return false
-        val distance = kotlin.math.abs(match.bounds.centerX - reference.bounds.centerX) +
-            kotlin.math.abs(match.bounds.centerY - reference.bounds.centerY)
-        return distance <= 120
+    private suspend fun verifyLiveContext(before: ScreenObservation): Boolean {
+        // Check the entire accessible screen, even for ordinary actions. The
+        // same package can navigate or show a dialog during a model request.
+        val fresh = observeWithRetry(includeScreenshot = false).observation ?: return false
+        return ActionContextGuard.isCurrent(before, fresh)
     }
 
     private suspend fun askConfirmation(
@@ -1057,7 +1048,7 @@ class AgentController(
         val target = targetRef(action, observation, refs)?.let { ref ->
             ref.text ?: ref.description ?: ref.id
         }
-        return when (action.type) {
+        val summary = when (action.type) {
             ActionType.TAP -> "Tap \"${target ?: "this element"}\" in ${observation.appLabel ?: observation.foregroundPackage}?"
             ActionType.LONG_PRESS -> "Long-press \"${target ?: "this element"}\"?"
             ActionType.TYPE_TEXT -> "Enter text into \"${target ?: "the focused field"}\"?"
@@ -1066,6 +1057,10 @@ class AgentController(
             ActionType.CLEAR_TEXT -> "Clear the text field?"
             else -> action.summary ?: "Perform ${action.type.name.lowercase()}?"
         }
+        val permissionWindow = observation.foregroundPackage?.contains("permissioncontroller", ignoreCase = true) == true
+        val dialogText = if (permissionWindow) observation.elements.mapNotNull { it.text ?: it.description }
+            .filter { it != "[redacted]" }.distinct().take(10).joinToString("\n").take(700) else ""
+        return if (dialogText.isNotBlank()) "$summary\n\nPermission request:\n$dialogText" else summary
     }
 
     private fun actionLabel(action: AgentAction, refs: Map<String, ElementRef>): String = when (action.type) {
@@ -1162,12 +1157,7 @@ class AgentController(
     }
 
     private suspend fun awaitResume() {
-        if (stopRequested) throwIfStopped()
-        if (AgentRuntime.state().pendingConfirmation != null) {
-            setState(AgentState.AWAITING_USER_CONFIRMATION)
-        } else if (AgentRuntime.state().state == AgentState.PAUSED) {
-            setState(AgentState.OBSERVING)
-        }
+        throwIfStopped()
         pauseGate.first { !it }
         throwIfStopped()
     }

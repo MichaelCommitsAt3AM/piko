@@ -54,13 +54,13 @@ While a task runs, Piko sends:
   screenshot policy decides it is useful (e.g., unchanged screen, very sparse
   tree, or explicit `observe` request).
 
-Piko does **not** send:
+Piko attempts to exclude credentials using accessibility metadata and text
+patterns. This is best-effort detection, not a guarantee for arbitrary app
+content or custom-drawn screens. It also excludes:
 
-- Android account credentials, passwords, PINs, OTPs, recovery codes, API
-  tokens, or payment card numbers.
 - Screenshots of secure/`FLAG_SECURE` windows (capture fails and is reported).
 - Screenshots stored on disk (none are persisted).
-- Hidden monitoring, keylogging, microphone, camera, location, contacts, SMS
+- Hidden monitoring, keylogging, camera, location, contacts, SMS
   or call data.
 
 ### Redaction and blocking
@@ -76,7 +76,13 @@ Piko does **not** send:
 - Text entry into password/payment fields is **blocked** with a clear message;
   the agent cannot type a password even if the model asks.
 - Card-number-shaped text (13–19 digits with spaces/hyphens) is blocked.
+- Screenshots are withheld when the inspected tree contains a detected credential
+  field, text that required redaction, or when traversal was truncated. Redacting
+  tree text alone cannot protect pixels in a screenshot.
 - Observation text is length-limited and duplicate/redundant nodes are removed.
+
+Completion evidence is supplied by the model; the UI calls it **Model-verified**.
+It is not an independent proof that the user goal was accomplished.
 
 Redaction is best-effort for arbitrary text rendered in normal labels. Users
 should not display secrets on screen during a task.
@@ -90,6 +96,12 @@ code:
 - The model can only select actions from a strict, versioned schema.
 - It cannot execute shell commands, install arbitrary code, or access files.
 - Element IDs must exist in the current observation; stale IDs are rejected.
+- Before executing an action, a fresh observation must match the original app,
+  display geometry, dialog/focus state, and accessible elements. This also applies
+  after approval. Element lookup requires matching labels, package, class, resource
+  ID and nearby bounds, rather than a best-score match.
+- This check covers the accessible tree; it cannot detect every visual-only change
+  in a custom-drawn interface, and Android observation/execution is not atomic.
 - Coordinates must be within the current display.
 - Sensitive actions are independently classified and confirmed by the user.
 - Authentication and permission prompts are never approved automatically.
@@ -116,7 +128,9 @@ code:
   error unless the user enables **Allow insecure HTTP endpoints** for local
   development.
 - URLs containing embedded credentials are rejected.
-- Only the configured provider host is contacted.
+- Automatic redirects are disabled for both streaming and ordinary requests so
+  credentials and screen content are not forwarded to a redirect destination.
+  Configure the final provider endpoint directly.
 - Timeouts are bounded (provider-configurable 15–300 s) and retries are bounded.
 - Responses are size-limited before parsing.
 - OpenCode Go requests use Bearer auth, a stable per-task
@@ -133,8 +147,8 @@ code:
 - `AgentService` and `ProjectionService` are `exported=false`.
 - PendingIntents are immutable.
 - The manifest exposes only the permissions Piko actually uses.
-- `FLAG_SECURE` is applied to Piko's activity to protect task details and
-  screenshots in recents.
+- `FLAG_SECURE` is applied while Settings is visible, protecting API-key
+  fields from screenshots and recent-app previews. Other Piko screens permit capture.
 
 ## 8. Data storage and retention
 
@@ -172,3 +186,22 @@ This is a personal project; there is no hosted service or telemetry. If you
 modify Piko, keep the invariants above: validate actions, never log secrets,
 never bypass Android security, and keep the confirmation gate for sensitive
 actions.
+
+## Voice and screenshot policy
+
+API keys are entered only in Settings, which sets FLAG_SECURE. Home, Models,
+provider configuration, task/history and voice input allow screenshots. Do not
+share screenshots containing private task or screen content inadvertently.
+
+Voice input uses RECORD_AUDIO only from a visible push-to-talk activity, with
+runtime microphone permission. Piko prefers the on-device recognizer; if it is
+unavailable, the system speech service may process audio online. There is no
+background microphone service or always-on listener. The editable transcript is
+sent only when the user presses Send/Start. While editing, an active task pauses;
+a submitted instruction cancels stale inference and invalidates pending approvals.
+
+Approval requests use a dedicated high-priority notification channel. Approve/Deny
+PendingIntents carry the specific request ID, so stale notifications cannot approve
+a different request. Permission/authentication actions always require approval,
+independent of the general sensitive-action toggle. Notifications require Android
+notification permission; review remains available in the app and floating panel.

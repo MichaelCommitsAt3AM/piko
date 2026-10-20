@@ -10,7 +10,7 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 - **Primary provider:** OpenCode Go (BYO API key)
 - **Also supported:** OpenAI, Anthropic, OpenAI-compatible and custom endpoints
 
-> **Execution status in this repository:** the app compiles, the debug APK is built, and 106 JVM/Robolectric tests pass. Physical-device end-to-end tests were **not** executed in this environment (no Android device or emulator image was available). See [docs/TESTING.md](docs/TESTING.md) for the manual checklist and exactly what has and has not been verified.
+> **Execution status in this repository:** the app compiles, the debug APK is built, and 135 JVM/Robolectric tests pass. A connected Samsung Galaxy A35 was used to verify Calculator launch, overlay lifecycle, and Settings-only screenshot protection. Other device scenarios and spoken recognition remain unverified. See [docs/TESTING.md](docs/TESTING.md) for the manual checklist and exactly what has and has not been verified.
 
 ---
 
@@ -23,7 +23,7 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 - Strict, versioned JSON action schema: `tap`, `long_press`, `swipe`, `scroll`, `type_text`, `clear_text`, `back`, `home`, `open_notifications`, `launch_app`, `wait`, `observe`, `request_confirmation`, `finish`, `fail`.
 - Native tool calling where the provider supports it, with structured-JSON fallback if tools are rejected.
 - Bounded retries, model/action timeouts, step limit, task-duration limit, estimated spending limit, loop detection, stale-observation rejection, and UI fingerprinting.
-- Verification after every action. Piko never treats "Android accepted the command" as success. `finish` only shows **Verified** when the model supplies evidence; otherwise it is reported as **Unverified**.
+- Verification after every action. Piko never treats "Android accepted the command" as success. `finish` only shows **Model-verified** when the model supplies evidence; otherwise it is reported as **Unverified**.
 - One task controls the device at a time.
 
 ### Android control
@@ -57,27 +57,36 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 - API keys and authorization headers are never logged.
 - Password/OTP/payment fields are redacted from observations; credential entry is **blocked**, not merely confirmed.
 - Password-manager/authenticator apps and terminal/remote-shell apps are blocked entirely, so the model cannot read credentials or type shell commands through a terminal UI.
+- Approval requests raise a separate high-priority notification with Approve, Deny and Review controls. Permission/authentication actions always require confirmation, even if general confirmations are disabled.
 - Sensitive actions require explicit confirmation: sending, payments, deletion, installs/uninstalls, external sharing, authentication/permission grants, and security settings.
 - Heuristics also classify coordinate taps by the element under the coordinate, so coordinate actions cannot bypass confirmation.
 - Screen content is explicitly marked **untrusted**. Instructions in web pages/messages/apps cannot override the user's goal or safety policy.
 - HTTPS required by default; HTTP only when the user explicitly enables local development endpoints.
 - Task history can be disabled, retained for a configurable period, or deleted entirely.
 - Screenshots are never persisted to disk or task history.
-- Piko's own UI uses `FLAG_SECURE`; backups are disabled and excluded by data-extraction rules.
+- Settings uses `FLAG_SECURE`; other Piko screens allow screenshots; backups are disabled and excluded by data-extraction rules.
 
 ### UI
 
-- Compose Material 3 interface with Piko branding, dark/light mode and dynamic color support.
-- Home: natural-language goal composer, capability tiles, active task, recent tasks, selected model.
-- Live task: state, timeline, confirmation card, current app, live observation text, optional in-memory screenshot, token/cost metrics, pause/resume/stop.
+- Minimal Compose Material 3 interface with neutral dark/light themes, restrained status colors and simpler shared components.
+- Home: focused goal composer, compact model selector, one required setup step at a time, active task and recent history.
+- Live task: progress, timeline, confirmation and pause/resume/stop controls; observations, screenshots and usage are available under Show details.
 - Models: provider list, key status, model selection, capability toggles, protocol override, connection test, model discovery.
 - History: filters, outcomes, duration, steps, tokens, cost, detailed per-step trace.
 - Settings: permissions, limits, confirmations, screenshots, streaming, history retention, insecure-endpoint gate, debug logs, destructive-data controls.
 
+### Voice and task updates
+
+- **Use voice** on Home starts a task from an editable transcript.
+- **Talk** on the floating overlay, live task screen, or notification opens a visible input panel while the task waits.
+- Send a correction or an additional task; pending model responses and approvals are invalidated before re-planning.
+- Recognition prefers on-device speech and falls back to the system speech service. Microphone permission is requested when used; there is no background listener.
+- Spoken recognition has not been device-tested yet.
+
 ### Background operation and overlay
 
 - Foreground agent service (`dataSync`) with persistent notification controls.
-- Optional draggable floating overlay (expanded/minimized) showing status, goal, action, step, approval-needed state, pause/resume and stop.
+- Accessibility-service edge border and draggable floating controls (expanded/minimized) showing status, goal, action, step, approval-needed state, pause/resume and stop.
 - Overlay controls are direct in-process calls, so they stay responsive during network requests.
 - If overlay permission is missing, notification controls and the app remain available.
 - Pauses when the screen locks, accessibility disconnects, or Piko's own UI is in front.
@@ -136,15 +145,15 @@ The package is `com.piko.agent`.
 4. **Floating overlay (optional but recommended):** Settings → Permissions → Floating overlay → allow.
 5. **Screen capture (optional):** Settings → Permissions → Screen capture → grant one-session MediaProjection access. Without it, Piko uses `AccessibilityService.takeScreenshot` on Android 11+.
 6. **Battery:** if long tasks are interrupted by the OEM, open Battery optimization and exempt Piko.
-7. **Models → OpenCode Go**, paste the API key, **Refresh models**, select a model, **Test connection**, **Save**.
+7. Save your API key under **Settings → API keys**. Then open **Models → OpenCode Go**, refresh/select a model, test the connection, and save.
 8. Return Home, enter an instruction, and tap **Start task**.
 
 ### OpenCode Go
 
 1. Sign in at <https://opencode.ai/console>, subscribe to Go/Go Plus, and create an API key.
-2. In Piko: **Models → OpenCode Go**.
-3. Paste the key. It is encrypted with Android Keystore and never displayed again.
-4. Press the refresh icon to fetch the live model list.
+2. In Piko: **Settings → API keys → OpenCode Go**.
+3. Paste and save the key. It is encrypted with Android Keystore and never displayed again.
+4. Open **Models → OpenCode Go** and press refresh to fetch the live model list.
 5. Choose a model. Piko routes documented Go models to their correct OpenAI/Responses/Anthropic endpoint automatically.
 6. Press **Test connection**. This makes a minimal inference request; a public `/models` response alone is not accepted as proof of authentication.
 7. Save.
@@ -176,7 +185,7 @@ For local HTTP endpoints, enable **Settings → Privacy & security → Allow ins
 6. Piko waits for the UI to settle, observes again, and records whether anything changed.
 7. Confirmation gates stop the loop for sensitive actions.
 8. Loop/retry/step/time/cost guards stop runaway tasks.
-9. Only an explicit, evidence-backed `finish` action reports verified completion.
+9. An explicit `finish` with model-supplied evidence reports Model-verified completion; this is not independent goal verification.
 10. Pause, resume, stop and approve/deny work from the app, notification and overlay.
 
 ### Action schema example
@@ -197,7 +206,7 @@ The complete schema and validation rules are in `core/ActionValidator.kt` and `a
 
 ```
 app/src/main/java/com/piko/agent/
-  MainActivity.kt                 Compose entry point, FLAG_SECURE
+  MainActivity.kt                 Compose entry point; secure flag scoped to Settings
   PikoApplication.kt              service locator, channels, orphan cleanup
   core/                           pure Kotlin: action schema, validation, state machine,
                                   loop detection, retries, redaction, fingerprints, cost
@@ -209,7 +218,7 @@ app/src/main/java/com/piko/agent/
   service/                        AgentService, ProjectionService
   overlay/                        draggable WindowManager overlay + capture suppression
   ui/                             Compose theme, screens, ViewModel
-  test/                           106 unit/Robolectric tests
+  test/                           135 unit/Robolectric tests
 ```
 
 Key design choices:
@@ -231,12 +240,12 @@ Key design choices:
 
 Current results in this environment:
 
-- **106 tests, 0 failures** across 17 suites.
-- A Compose instrumentation smoke test is included and compiles, but was not run without a device.
+- **135 tests, 0 failures** across 22 suites.
+- Home smoke, overlay lifecycle, and Settings screenshot-policy instrumentation tests pass on the connected Galaxy A35.
 - Covers action validation, parser, state machine, coordinate mapping, loop detection, retries, cancellation, sensitive-action classification, redaction, fingerprints, cost calculation, prompt construction, all three provider response dialects, endpoint routing, SSE streaming, MockWebServer request/auth/retry/tool-fallback/connection-test behavior, screenshot processing, and Room task persistence.
 - `lintDebug` passes (warnings remain, mostly version suggestions and localization notes).
 
-Physical-device scenarios (Settings dark mode, Chrome search, Calculator, dialogs, cancellation, timeouts, accessibility disconnection) are listed in [docs/TESTING.md](docs/TESTING.md) but **were not executed here**. They must not be reported as passed without a real device run.
+Physical-device scenarios (Settings dark mode, Chrome search, Calculator, dialogs, cancellation, timeouts, accessibility disconnection) are listed in [docs/TESTING.md](docs/TESTING.md) and remain unverified except for the explicitly recorded device checks.
 
 ---
 
@@ -270,7 +279,9 @@ Highlights:
 - **Task-level token context** is bounded by trimming element count/history, not by a provider-specific tokenizer.
 - **Cost data** is estimated from configured per-million prices; OpenCode Go peak/off-peak and plan pricing are not modeled exactly.
 - **MediaProjection** consent is session-scoped and must be granted again after process death/revocation.
-- **No physical-device tests were run in this environment.**
+- Device verification is limited to the Calculator launch, overlay lifecycle, home smoke test and Settings-only screenshot protection. Spoken recognition and the other manual scenarios remain unverified.
+- Fresh-screen checks are deliberately conservative: changing accessible content can cause an action to be withheld and replanned. Visual-only changes in custom-drawn apps are not fully detectable.
+- Credential detection and sensitive-action classification use heuristics. Model-verified completion is model-reported evidence, not independent goal verification.
 
 ### Shizuku
 
@@ -299,6 +310,6 @@ Shizuku is intentionally not implemented in this build. The user requirements ma
 - `dist/Piko-debug.apk` — debug APK.
 - `app/schemas/` — exported Room schema for future migrations.
 - `local.properties` — local SDK path (machine-specific).
-- No analytics, ads or network calls other than the configured model provider.
+- No analytics or ads. Model requests go to the configured provider; the Android speech service may process voice online when on-device recognition is unavailable.
 
 Piko is a personal automation tool. Use it only on devices and accounts you control, and only with providers you trust with the screen content you expose to it.

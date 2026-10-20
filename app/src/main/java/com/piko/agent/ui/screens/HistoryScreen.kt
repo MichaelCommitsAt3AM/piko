@@ -49,7 +49,6 @@ import com.piko.agent.ui.components.formatDuration
 import com.piko.agent.ui.components.formatTimestamp
 import com.piko.agent.ui.components.formatUsd
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -118,7 +117,7 @@ fun HistoryScreen(
                         value = formatUsd(totalCost),
                         label = "Est. cost",
                         modifier = Modifier.weight(1f),
-                        accent = PikoLime,
+                        accent = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
@@ -129,7 +128,7 @@ fun HistoryScreen(
                 items(filters) { option ->
                     Surface(
                         shape = CircleShape,
-                        color = if (filter == option) PikoLime else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (filter == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         onClick = { filter = option },
                     ) {
                         Text(

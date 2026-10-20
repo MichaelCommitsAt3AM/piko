@@ -34,6 +34,12 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -70,7 +76,6 @@ import com.piko.agent.ui.components.PikoCard
 import com.piko.agent.ui.components.SectionHeader
 import com.piko.agent.ui.components.StatusPill
 import com.piko.agent.ui.theme.PikoAmber
-import com.piko.agent.ui.theme.PikoLime
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
@@ -94,6 +99,7 @@ fun SettingsScreen(
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val projectionActive by viewModel.projectionActive.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val credentialRevision by viewModel.credentialRevision.collectAsStateWithLifecycle()
     var deleteHistoryDialog by remember { mutableStateOf(false) }
     var deleteKeysDialog by remember { mutableStateOf(false) }
     var showLogs by remember { mutableStateOf(false) }
@@ -119,6 +125,19 @@ fun SettingsScreen(
             }
         }
 
+        item {
+            SectionHeader("API keys", "Screenshots are blocked on Settings only.")
+        }
+        settings.providerConfigs.forEach { provider ->
+            item(key = "key-${provider.id}") {
+                ApiKeySetting(
+                    providerName = provider.name,
+                    hasKey = remember(provider.id, credentialRevision) { viewModel.hasApiKey(provider.id) },
+                    onSave = { viewModel.saveApiKey(provider.id, it) },
+                    onRemove = { viewModel.removeApiKey(provider.id) },
+                )
+            }
+        }
         item {
             SectionHeader("Permissions", "Piko only operates while you start a task")
         }
@@ -398,7 +417,7 @@ fun SettingsScreen(
             PikoCard(Modifier.fillMaxWidth()) {
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Info, contentDescription = null, tint = PikoLime)
+                        Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(8.dp))
                         Text("Piko ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.weight(1f))
@@ -414,7 +433,7 @@ fun SettingsScreen(
                         Icon(Icons.Filled.Security, contentDescription = null, tint = PikoMint, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            "Keystore-encrypted keys · HTTPS by default · FLAG_SECURE UI · no analytics",
+                            "Keystore-encrypted keys · HTTPS by default · screenshot-protected Settings · no analytics",
                             style = MaterialTheme.typography.labelSmall,
                             color = PikoMint,
                         )
@@ -500,7 +519,7 @@ private fun SliderSetting(
             Text(
                 valueText,
                 style = MaterialTheme.typography.labelMedium,
-                color = if (enabled) PikoLime else PikoMuted,
+                color = if (enabled) MaterialTheme.colorScheme.primary else PikoMuted,
             )
         }
         Slider(
@@ -540,6 +559,45 @@ private fun ActionRow(
                 Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun ApiKeySetting(
+    providerName: String,
+    hasKey: Boolean,
+    onSave: suspend (String) -> Boolean,
+    onRemove: suspend () -> Unit,
+) {
+    var input by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    PikoCard(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(providerName, style = MaterialTheme.typography.titleMedium)
+            Text(if (hasKey) "Key saved securely" else "No key saved", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(
+                value = input, onValueChange = { input = it },
+                label = { Text(if (hasKey) "Replace API key" else "API key") },
+                modifier = Modifier.fillMaxWidth(), singleLine = true, enabled = !busy,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(enabled = input.isNotBlank() && !busy, onClick = {
+                    scope.launch {
+                        busy = true
+                        try { if (onSave(input)) input = "" } finally { busy = false }
+                    }
+                }) { Text("Save key") }
+                if (hasKey) TextButton(enabled = !busy, onClick = {
+                    scope.launch {
+                        busy = true
+                        try { onRemove() } finally { busy = false }
+                    }
+                }) { Text("Remove key") }
+            }
         }
     }
 }

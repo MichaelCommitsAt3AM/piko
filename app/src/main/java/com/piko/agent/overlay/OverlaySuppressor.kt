@@ -3,32 +3,39 @@ package com.piko.agent.overlay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/**
- * Temporarily hides the floating overlay while a screenshot is captured so the
- * agent never mistakes Piko's own controls for app content.
- */
+/** Serialize captures and restore controls even if cancellation hits the settle delay. */
 object OverlaySuppressor {
-    @Volatile
-    private var controller: ((Boolean) -> Unit)? = null
+    private val captureMutex = Mutex()
+    @Volatile private var controller: ((Boolean) -> Unit)? = null
+    @Volatile var isSuppressed = false
+        private set
 
     fun register(controller: (Boolean) -> Unit) {
         this.controller = controller
+        if (isSuppressed) controller(false)
     }
-
     fun unregister(controller: (Boolean) -> Unit) {
         if (this.controller === controller) this.controller = null
     }
 
-    suspend fun <T> suppressed(block: suspend () -> T): T {
-        val current = controller ?: return block()
-        withContext(Dispatchers.Main) { current(false) }
-        delay(140)
-        return try {
+    suspend fun <T> suppressed(block: suspend () -> T): T = captureMutex.withLock {
+        if (controller == null) return@withLock block()
+        try {
+            withContext(Dispatchers.Main) {
+                isSuppressed = true
+                controller?.invoke(false)
+            }
+            delay(140)
             block()
         } finally {
-            withContext(NonCancellable + Dispatchers.Main) { current(true) }
+            withContext(NonCancellable + Dispatchers.Main) {
+                isSuppressed = false
+                controller?.invoke(true)
+            }
         }
     }
 }
