@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="piko_ink">#080B12</color>
+    <color name="piko_ink_elevated">#111623</color>
+    <color name="piko_lime">#D4FF4F</color>
+    <color name="piko_lime_dark">#9BCB1C</color>
+    <color name="piko_violet">#8B7CFF</color>
+    <color name="piko_white">#F6F8F3</color>
+</resources>

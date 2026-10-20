@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Piko</string>
+    <string name="app_description">An AI agent that operates your Android phone.</string>
+    <string name="accessibility_service_label">Piko device control</string>
+    <string name="accessibility_description">Piko reads the screen and performs taps, swipes and text entry so the AI agent you configure can carry out tasks you request. Piko only acts while you start a task and can be stopped at any time. Screen content is sent to your selected AI provider only while a task is running.</string>
+
+    <string name="notification_channel_agent">Piko task control</string>
+    <string name="notification_channel_projection">Piko screen capture</string>
+    <string name="notification_channel_setup">Piko setup</string>
+    <string name="notification_agent_title">Piko is working</string>
+    <string name="notification_paused_title">Piko is paused</string>
+    <string name="notification_projection_title">Piko screen capture active</string>
+    <string name="notification_projection_text">Screen capture runs only while you use Piko. Tap to open Piko.</string>
+</resources>

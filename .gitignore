@@ -1,0 +1,18 @@
+# Gradle / Android
+.gradle/
+build/
+app/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+.idea/
+.DS_Store
+
+# Local artifacts
+dist/*.apk
+*.log
+build-log-*.txt
+test-log-*.txt
+lint-log-*.txt
