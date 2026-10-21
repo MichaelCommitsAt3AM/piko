@@ -19,6 +19,11 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -72,8 +77,8 @@ fun HomeScreen(
     ) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Piko", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = onOpenModels, modifier = Modifier.weight(1f)) {
+                Text("Piko", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = onOpenModels, modifier = Modifier.width(180.dp)) {
                     Text(
                         home.selectedProvider?.selectedModel?.label ?: "Choose a model",
                         maxLines = 1,
@@ -130,46 +135,75 @@ fun HomeScreen(
             }
         } else {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Spacer(Modifier.height(16.dp))
-                    Text("What should I do?", style = MaterialTheme.typography.headlineLarge)
+                Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                    Spacer(Modifier.height(36.dp))
+                    Text("A little less to do.", style = MaterialTheme.typography.displaySmall)
                     Text(
-                        "Give your phone a task.",
+                        "What can I take care of?",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    OutlinedTextField(
-                        value = goal,
-                        onValueChange = { goal = it.take(2000) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Your task") },
-                        placeholder = { Text("Open Settings and turn on dark mode") },
-                        minLines = 4,
-                        maxLines = 8,
-                        shape = MaterialTheme.shapes.medium,
-                    )
-                    Button(
-                        onClick = {
-                            val previousId = runtime.taskId
-                            if (viewModel.startTask(goal)) onStartTask(previousId)
-                        },
-                        enabled = goal.isNotBlank() && ready,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                    ) {
-                        Text("Start task")
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Filled.ArrowUpward, null, Modifier.size(18.dp))
+                    Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surface) {
+                        Column(Modifier.padding(8.dp)) {
+                            TextField(
+                                value = goal,
+                                onValueChange = { goal = it.take(2000) },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("Ask Piko to do something...") },
+                                minLines = 3, maxLines = 8,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                ),
+                                textStyle = MaterialTheme.typography.bodyLarge,
+                            )
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                IconButton(onClick = { VoiceInputActivity.open(context) }) {
+                                    Icon(Icons.Filled.Mic, contentDescription = "Use voice")
+                                }
+                                Button(
+                                    onClick = {
+                                        val previousId = runtime.taskId
+                                        if (viewModel.startTask(goal)) onStartTask(previousId)
+                                    },
+                                    enabled = goal.isNotBlank() && ready,
+                                    shape = CircleShape,
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                                ) {
+                                    Text("Start task")
+                                    Spacer(Modifier.width(8.dp))
+                                    Icon(Icons.Filled.ArrowUpward, null, Modifier.size(18.dp))
+                                }
+                            }
+                        }
                     }
-                    TextButton(onClick = { VoiceInputActivity.open(context) }) {
-                        Icon(Icons.Filled.Mic, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Use voice")
+                    if (goal.isBlank()) {
+                        Column {
+                            Text("TRY SOMETHING SIMPLE", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { goal = "Open Settings and turn on dark mode" },
+                                contentPadding = PaddingValues(vertical = 8.dp)) {
+                                Text("Turn on dark mode")
+                                Spacer(Modifier.width(8.dp))
+                                Icon(Icons.Filled.ChevronRight, null, Modifier.size(16.dp))
+                            }
+                            TextButton(onClick = { goal = "Open Calculator and calculate 18% of 2500" },
+                                contentPadding = PaddingValues(vertical = 8.dp)) {
+                                Text("Work something out")
+                                Spacer(Modifier.width(8.dp))
+                                Icon(Icons.Filled.ChevronRight, null, Modifier.size(16.dp))
+                            }
+                        }
                     }
-                    Text(
-                        "Screen content is shared with your selected AI provider.",
+                    Text("Your task and screen content go to your selected AI provider.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             // Show the next required setup step. Optional permissions live in Settings.
@@ -235,7 +269,7 @@ fun HomeScreen(
                     )
                 }
             }
-            items(home.recentTasks.take(3), key = { it.id }) { task ->
+            items(home.recentTasks.take(2), key = { it.id }) { task ->
                 RecentTaskRow(task, onClick = { onOpenHistoryTask(task.id) })
             }
         }

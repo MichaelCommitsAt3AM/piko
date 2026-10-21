@@ -26,7 +26,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -44,7 +43,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -56,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -81,7 +78,6 @@ import com.piko.agent.ui.theme.PikoAmber
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
-import com.piko.agent.ui.theme.PikoViolet
 
 @Composable
 fun TaskScreen(
@@ -209,7 +205,7 @@ fun TaskScreen(
 
             item {
                 SectionHeader(
-                    title = "Execution timeline",
+                    title = "Activity",
                     subtitle = "${state.timeline.size} events · step ${state.step}" +
                         if (state.maxSteps > 0) " of ${state.maxSteps}" else "",
                 )
@@ -245,7 +241,6 @@ private fun TaskSummary(state: AgentRuntimeState) {
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -258,7 +253,7 @@ private fun TaskSummary(state: AgentRuntimeState) {
                 )
             }
             Spacer(Modifier.height(10.dp))
-            Text(state.goal, style = MaterialTheme.typography.titleLarge)
+            Text(state.goal, style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(12.dp))
             if (state.state.isRunning || state.state == AgentState.PAUSED) {
                 LinearProgressIndicator(
@@ -616,7 +611,6 @@ private fun TaskControls(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),

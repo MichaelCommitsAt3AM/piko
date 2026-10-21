@@ -1,6 +1,5 @@
 package com.piko.agent.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,7 +31,6 @@ import com.piko.agent.ui.theme.PikoAmber
 import com.piko.agent.ui.theme.PikoMint
 import com.piko.agent.ui.theme.PikoMuted
 import com.piko.agent.ui.theme.PikoRed
-import com.piko.agent.ui.theme.PikoViolet
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -85,7 +83,6 @@ fun PikoCard(
         modifier = modifier,
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f)),
         tonalElevation = 0.dp,
         content = { Box(Modifier.padding(18.dp)) { content() } },
     )
@@ -104,7 +101,7 @@ fun SectionHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(title, style = MaterialTheme.typography.titleMedium)
             if (subtitle != null) {
                 Text(
                     subtitle,
@@ -127,11 +124,11 @@ fun StatusPill(
     Surface(
         modifier = modifier,
         shape = CircleShape,
-        color = color.copy(alpha = 0.14f),
+        color = Color.Transparent,
 
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
@@ -173,10 +170,6 @@ fun PermissionTile(
         onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(
-            1.dp,
-            if (ok) PikoMint.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant,
-        ),
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -233,7 +226,6 @@ fun MetricCard(
         modifier = modifier,
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(value, style = MaterialTheme.typography.titleMedium, color = accent, maxLines = 1)

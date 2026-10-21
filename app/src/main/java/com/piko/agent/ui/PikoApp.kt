@@ -14,10 +14,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -65,10 +65,10 @@ private data class TopLevelDestination(
 )
 
 private val destinations = listOf(
-    TopLevelDestination("home", "Home", Icons.Filled.Home),
-    TopLevelDestination("models", "Models", Icons.Filled.SmartToy),
-    TopLevelDestination("history", "History", Icons.Filled.History),
-    TopLevelDestination("settings", "Settings", Icons.Filled.Settings),
+    TopLevelDestination("home", "Home", Icons.Outlined.Home),
+    TopLevelDestination("models", "Models", Icons.Outlined.SmartToy),
+    TopLevelDestination("history", "History", Icons.Outlined.History),
+    TopLevelDestination("settings", "Settings", Icons.Outlined.Settings),
 )
 
 @Composable
@@ -268,7 +268,7 @@ fun PikoApp(viewModel: PikoViewModel) {
 @Composable
 private fun PikoBottomBar(navController: NavHostController, currentRoute: String?) {
     NavigationBar(
-        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
     ) {
         destinations.forEach { destination ->
@@ -285,11 +285,11 @@ private fun PikoBottomBar(navController: NavHostController, currentRoute: String
                     }
                 },
                 icon = { Icon(destination.icon, contentDescription = destination.label) },
-                label = { Text(destination.label) },
+                label = { Text(destination.label, style = androidx.compose.material3.MaterialTheme.typography.labelSmall) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer,
+                    selectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.onBackground,
                     selectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
-                    indicatorColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer,
+                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                     unselectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                 ),

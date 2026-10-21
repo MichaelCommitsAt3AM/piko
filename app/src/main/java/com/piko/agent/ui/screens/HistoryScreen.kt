@@ -1,6 +1,5 @@
 package com.piko.agent.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,7 +41,6 @@ import com.piko.agent.data.db.TaskEntity
 import com.piko.agent.ui.PikoViewModel
 import com.piko.agent.ui.components.EmptyState
 import com.piko.agent.ui.components.MetricCard
-import com.piko.agent.ui.components.SectionHeader
 import com.piko.agent.ui.components.StatusPill
 import com.piko.agent.ui.components.formatDuration
 import com.piko.agent.ui.components.formatTimestamp
@@ -72,7 +69,7 @@ fun HistoryScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 28.dp),
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -134,7 +131,7 @@ fun HistoryScreen(
                         Text(
                             option,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (filter == option) Color(0xFF141A00) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (filter == option) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                         )
                     }
@@ -148,7 +145,7 @@ fun HistoryScreen(
                     icon = Icons.Filled.History,
                     title = if (tasks.isEmpty()) "No task history" else "No matching tasks",
                     body = if (tasks.isEmpty()) {
-                        "Completed and failed tasks appear here with their execution traces. Disable history in Settings to keep nothing."
+                        "Your past tasks will appear here."
                     } else {
                         "Try a different filter."
                     },
@@ -196,11 +193,10 @@ private fun HistoryCard(task: TaskEntity, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = MaterialTheme.colorScheme.background,
         onClick = onClick,
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(vertical = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (status == AgentState.COMPLETED) Icons.Filled.CheckCircle else Icons.Filled.ErrorOutline,
@@ -220,19 +216,19 @@ private fun HistoryCard(task: TaskEntity, onClick: () -> Unit) {
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                StatusPill(
-                    label = when (status) {
-                        AgentState.COMPLETED -> if (task.verified == true) "Verified" else "Completed"
-                        AgentState.CANCELLED -> "Stopped"
-                        else -> "Failed"
-                    },
-                    color = when (status) {
-                        AgentState.COMPLETED -> if (task.verified == true) PikoMint else PikoAmber
-                        AgentState.CANCELLED -> PikoAmber
-                        else -> PikoRed
-                    },
-                )
             }
+            StatusPill(
+                label = when (status) {
+                    AgentState.COMPLETED -> if (task.verified == true) "Verified" else "Completed"
+                    AgentState.CANCELLED -> "Stopped"
+                    else -> "Failed"
+                },
+                color = when (status) {
+                    AgentState.COMPLETED -> if (task.verified == true) PikoMint else PikoAmber
+                    AgentState.CANCELLED -> PikoAmber
+                    else -> PikoRed
+                },
+            )
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

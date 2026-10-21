@@ -117,7 +117,7 @@ class AgentOverlay(
         val color = stateColor(state.state)
         statusDot.background = circle(color)
         if (::bubbleStatusDot.isInitialized) bubbleStatusDot.background = circle(color)
-        edges.update(if (state.state == AgentState.PAUSED) color else 0xFF7EB8F5.toInt())
+        edges.update(state.state)
         goalText.text = state.goal.ifBlank { "No task" }
         actionText.text = state.currentAction
             ?: state.pauseReason
