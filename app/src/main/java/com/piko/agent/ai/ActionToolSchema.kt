@@ -33,6 +33,8 @@ object ActionToolSchema {
         putJsonObject("direction") { put("type", "string") }
         putJsonObject("text") { put("type", "string") }
         putJsonObject("packageName") { put("type", "string") }
+        putJsonObject("toolId") { put("type", "string"); put("enum", JsonArray(com.piko.agent.tools.ToolCatalog.tools.map { kotlinx.serialization.json.JsonPrimitive(it.id) })) }
+        putJsonObject("parameters") { put("type", "object") }
     }
 
     val ACTION_PROPERTIES: JsonObject = buildJsonObject {
@@ -53,6 +55,8 @@ object ActionToolSchema {
         putJsonObject("amount") { put("type", "integer"); put("minimum", 1); put("maximum", 10) }
         putJsonObject("text") { put("type", "string"); put("maxLength", 4000) }
         putJsonObject("packageName") { put("type", "string") }
+        putJsonObject("toolId") { put("type", "string"); put("enum", JsonArray(com.piko.agent.tools.ToolCatalog.tools.map { kotlinx.serialization.json.JsonPrimitive(it.id) })) }
+        putJsonObject("parameters") { put("type", "object") }
         putJsonObject("appName") { put("type", "string") }
         putJsonObject("milliseconds") { put("type", "integer"); put("minimum", 100); put("maximum", 10000) }
         putJsonObject("includeScreenshot") { put("type", "boolean") }
@@ -91,6 +95,6 @@ object ActionToolSchema {
         add("tap"); add("long_press"); add("swipe"); add("scroll"); add("type_text")
         add("clear_text"); add("back"); add("home"); add("open_notifications")
         add("launch_app"); add("wait"); add("observe"); add("request_confirmation")
-        add("finish"); add("fail")
+        add("native_tool"); add("finish"); add("fail")
     }
 }

@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -42,6 +43,10 @@ data class PermissionState(
     val overlayAllowed: Boolean = false,
     val notificationsAllowed: Boolean = false,
     val projectionActive: Boolean = false,
+    val microphoneAllowed: Boolean = false,
+    val cameraAllowed: Boolean = false,
+    val assistantSelected: Boolean = false,
+    val notificationAccess: Boolean = false,
 ) {
     val screenshotsAvailable: Boolean get() = accessibilityEnabled || projectionActive
 }
@@ -67,6 +72,7 @@ class PikoViewModel(application: Application) : AndroidViewModel(application) {
 
     val runtime = AgentRuntime.state
     val logs = AgentRuntime.logs
+    val openAssistant = MutableStateFlow(false)
     val projectionActive = ProjectionService.active
 
     private val _permissions = MutableStateFlow(readPermissions())
@@ -89,6 +95,72 @@ class PikoViewModel(application: Application) : AndroidViewModel(application) {
                 _permissions.value = _permissions.value.copy(projectionActive = active)
             }
         }
+    }
+
+    val memories = app.memoryRepository.memories.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val workflows = app.database.assistantDao().workflows().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val schedules = app.database.assistantDao().schedules().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun saveMemory(key: String, content: String, category: String = "Preference", approved: Boolean = true, expiresAt: Long? = null) {
+        viewModelScope.launch {
+            runCatching { app.memoryRepository.save(key, content, category, approved, expiresAt) }
+                .onSuccess { emit(if (approved) "Memory saved locally. Relevant preferences may be sent with model requests." else "Suggestion saved for review.") }
+                .onFailure { emit(it.message ?: "Could not save memory.") }
+        }
+    }
+    fun deleteMemory(id: String) { viewModelScope.launch { app.memoryRepository.delete(id) } }
+    fun clearMemories() { viewModelScope.launch { app.memoryRepository.clear() } }
+    fun saveWorkflow(name: String, description: String, steps: List<com.piko.agent.workflow.WorkflowStep>, id: String? = null) {
+        viewModelScope.launch {
+            runCatching {
+                require(name.isNotBlank() && name.length <= 120) { "Enter a workflow name (1–120 characters)." }
+                val errors = com.piko.agent.workflow.WorkflowVariables.templateErrors(steps)
+                require(errors.isEmpty()) { errors.joinToString(" ") }
+                require(steps.all { com.piko.agent.data.MemoryRepository.isSafe(it.instruction.ifBlank { "Step" }) && it.parameters.values.all { value ->
+                    com.piko.agent.data.MemoryRepository.isSafe((value as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "")
+                } }) { "Remove credential-like or private data before saving." }
+                val now = System.currentTimeMillis()
+                val previous = id?.let { app.database.assistantDao().workflow(it) }
+                app.database.assistantDao().putWorkflow(com.piko.agent.data.db.WorkflowEntity(id ?: UUID.randomUUID().toString(), name.trim(), description.take(2000),
+                    com.piko.agent.core.PikoJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(com.piko.agent.workflow.WorkflowStep.serializer()), steps), previous?.createdAt ?: now, now))
+                emit("Workflow saved after your review.")
+            }.onFailure { emit(it.message ?: "Could not save workflow.") }
+        }
+    }
+    fun runWorkflow(workflow: com.piko.agent.data.db.WorkflowEntity, variables: Map<String, String> = emptyMap()): Boolean {
+        if (runtime.value.isActive) { emit("Stop or finish the current task first."); return false }
+        return runCatching { AgentService.start(context, "Run workflow: ${workflow.name}", workflowId = workflow.id, workflowArguments = variables); true }
+            .getOrElse { emit(it.message ?: "Could not start workflow."); false }
+    }
+    fun deleteWorkflow(id: String) {
+        viewModelScope.launch {
+            app.database.assistantDao().schedules().first().filter { it.workflowId == id }.forEach { schedule ->
+                com.piko.agent.workflow.WorkflowScheduler(context).cancel(schedule.id)
+                app.database.assistantDao().deleteSchedule(schedule.id)
+            }
+            app.database.assistantDao().deleteWorkflow(id)
+        }
+    }
+    fun scheduleWorkflow(id: String, hour: Int, minute: Int, recurrence: String, weekday: Int) {
+        viewModelScope.launch {
+            runCatching {
+                val next = com.piko.agent.workflow.ScheduleCalculator.next(hour, minute, recurrence, weekday, java.time.Instant.now(), java.time.ZoneId.systemDefault())
+                val schedule = com.piko.agent.data.db.ScheduleEntity(UUID.randomUUID().toString(), id, hour, minute, recurrence, weekday, next)
+                app.database.assistantDao().putSchedule(schedule)
+                com.piko.agent.workflow.WorkflowScheduler(context).arm(schedule)
+                emit("Reminder scheduled. Android may delay delivery; unlock and review before running.")
+            }.onFailure { emit(it.message ?: "Could not schedule workflow.") }
+        }
+    }
+    fun toggleSchedule(schedule: com.piko.agent.data.db.ScheduleEntity) {
+        viewModelScope.launch {
+            val updated = schedule.copy(enabled = !schedule.enabled, nextRunAt = com.piko.agent.workflow.ScheduleCalculator.next(schedule.hour, schedule.minute, schedule.recurrence, schedule.weekday, java.time.Instant.now(), java.time.ZoneId.systemDefault()))
+            app.database.assistantDao().putSchedule(updated)
+            com.piko.agent.workflow.WorkflowScheduler(context).arm(updated)
+        }
+    }
+    fun cancelSchedule(id: String) {
+        viewModelScope.launch { com.piko.agent.workflow.WorkflowScheduler(context).cancel(id); app.database.assistantDao().deleteSchedule(id) }
     }
 
     val recentTasks: StateFlow<List<TaskEntity>> = taskRepository.observeRecent(8)
@@ -128,18 +200,28 @@ class PikoViewModel(application: Application) : AndroidViewModel(application) {
             overlayAllowed = Settings.canDrawOverlays(context),
             notificationsAllowed = NotificationManagerCompat.from(context).areNotificationsEnabled(),
             projectionActive = ProjectionService.isActive(),
+            microphoneAllowed = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+            cameraAllowed = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED,
+            assistantSelected = context.getSystemService(android.app.role.RoleManager::class.java).let { it.isRoleAvailable(android.app.role.RoleManager.ROLE_ASSISTANT) && it.isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT) },
+            notificationAccess = context.packageName in androidx.core.app.NotificationManagerCompat.getEnabledListenerPackages(context),
         )
     }
 
-    fun startTask(goal: String): Boolean {
+    fun startTask(goal: String, screenQuestion: Boolean = false): Boolean {
         val clean = goal.trim()
         if (clean.isEmpty()) {
             emit("Describe what you want Piko to do.")
             return false
         }
+        if (!screenQuestion && !runtime.value.isActive && com.piko.agent.data.MemoryCommand.parse(clean) != null) {
+            return runCatching { AgentService.start(context, clean); true }.getOrElse { emit("Could not open local memory: ${it.message}"); false }
+        }
         if (runtime.value.state.isRunning || runtime.value.state == AgentState.PAUSED) {
             emit("A task is already running.")
             return false
+        }
+        if (!screenQuestion && com.piko.agent.tools.NativeCommandPlanner.plan(clean) != null) {
+            return runCatching { AgentService.start(context, clean); true }.getOrElse { emit(it.message ?: "Could not start native task."); false }
         }
         if (!readPermissions().accessibilityEnabled) {
             emit("Enable Piko's accessibility service before starting.")
@@ -155,7 +237,7 @@ class PikoViewModel(application: Application) : AndroidViewModel(application) {
             return false
         }
         return try {
-            AgentService.start(context, clean)
+            AgentService.start(context, clean, screenQuestion)
             true
         } catch (error: Exception) {
             emit("Could not start Piko: ${error.message}")

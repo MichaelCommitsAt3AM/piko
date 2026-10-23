@@ -13,8 +13,15 @@ import com.piko.agent.ui.theme.PikoTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: PikoViewModel by viewModels()
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("openAssistant", false)) viewModel.openAssistant.value = true
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        viewModel.openAssistant.value = intent.getBooleanExtra("openAssistant", false)
         enableEdgeToEdge()
         setContent {
             PikoTheme {

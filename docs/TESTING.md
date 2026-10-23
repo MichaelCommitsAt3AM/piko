@@ -1,5 +1,30 @@
 # Piko testing
 
+## Assistant upgrade verification — 21 October 2026
+
+- **165 JVM/Robolectric tests, 0 failures, 28 suites.**
+- Latest device run: **5 passed, 2 skipped, 0 failed**, Samsung Galaxy A35 (SM-A356E), Android 16. Passed: three Home tests, Assistant hub navigation, Settings screenshot flags. Skipped: overlay lifecycle and approval notifications, because their platform permissions were unavailable. No permissions were silently granted for tests.
+- New tests cover closed native-tool validation/resolution, deterministic multi-step parsing and actual offline volume execution without an API key/accessibility, read-only screen policy, voice session cancellation/stale callbacks, TTS mute/stop/shutdown/initialization failure, Room 1→2 migration preserving an existing task, memory persistence/retrieval/expiry/deletion, workflow JSON/variables/branching/order/failure/retries/cancellation, device-zone/DST schedules and alarm cancellation, and permission-screen overlay suppression.
+- **Final build and lint: passed** (warnings remain).
+- Commands: `:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:lintDebug`, `:app:connectedDebugAndroidTest`. See the latest build output for lint; warnings include SDK/dependency suggestions, localization and KTX suggestions.
+- Manual testing still needed for real speech and TTS audio, selecting/invoking the system assistant, model screen Q&A, flashlight/media hardware, floating keyboard/drag/rotation, reboot/Doze/timezone reminders, permission revocation and multi-app workflow recovery. Wake-word detection is not implemented.
+
+### Manual assistant scenarios
+
+1. Deny microphone; confirm typing still works. Start voice, cancel/rotate/background it, and ensure no late transcript or microphone remains. Test unsupported language and missing recognizer.
+2. Enable spoken responses, vary rate/voice, interrupt with a call or new recording, mute/stop and check immediate release.
+3. Select Piko using the visible assistant chooser; invoke/dismiss the OEM gesture. Decline selection and confirm tile/in-app activation still works.
+4. Open a public article → floating Ask screen → review provider consent. Deny consent and confirm Send is disabled. Send a question, then try a prompt-injected page; verify no device actions. Repeat with screenshots disabled, FLAG_SECURE, rotation and an inaccessible tree.
+5. Save/edit/expire/forget a keyed preference, restart, inspect approved-only retrieval, and clear all. Decline a model-proposed memory and ensure it is not persisted.
+6. Review/save a successful task, parameterize its variables, run with a missing/ambiguous semantic target, deny a confirmation and cancel mid-step. Verify no coordinate replay or non-idempotent automatic retry.
+7. Schedule once/daily/weekly, deny notifications, reboot/change timezone/enter Doze, disable/cancel, and verify reminders never start UI automation automatically. Reopen after force-stop to restore alarms.
+8. Enable the idle bubble, drag/snap/minimize/dismiss, type/send, record, rotate and show a permission dialog. Verify the overlay hides on protected surfaces and Stop remains available in app/notification.
+9. Run exact flashlight/volume/app-opening commands without an API key; deny camera and check an honest failure. For intent tools, check drafts rather than actual sends; verify pending action details before approval. Test media play/pause with notification access denied and multiple active sessions.
+
+## Existing baseline tests and earlier device records
+
+The sections below retain the original coverage and historical manual notes; they are not evidence that new hardware/voice/assistant features were verified.
+
 ## Automated tests executed in this environment
 
 Command:
@@ -11,7 +36,7 @@ Command:
 
 Result at the time of writing:
 
-- **135 tests, 0 failures, 22 suites** (Robolectric + JVM).
+- **165 tests, 0 failures, 28 suites** (Robolectric + JVM).
 - **Lint: passing** (warnings only, mostly newer-version suggestions, Compose
   modifier ordering and localization notes).
 

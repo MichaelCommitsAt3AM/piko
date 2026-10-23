@@ -7,17 +7,50 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import kotlin.coroutines.resume
 
 class PikoAccessibilityService : AccessibilityService() {
+    private val assistantScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+    private var idleOverlay: com.piko.agent.overlay.AgentOverlay? = null
+    private var overlayJob: kotlinx.coroutines.Job? = null
+
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         AccessibilityBridge.attach(this)
+        overlayJob?.cancel()
+        overlayJob = assistantScope.launch {
+            kotlinx.coroutines.flow.combine(com.piko.agent.PikoApplication.from(this@PikoAccessibilityService).settingsRepository.settings,
+                com.piko.agent.agent.AgentRuntime.state) { settings, state -> settings to state }.collect { (settings, state) ->
+                if (!settings.floatingAssistantEnabled || state.isActive) {
+                    idleOverlay?.hide(); idleOverlay = null
+                } else {
+                    if (idleOverlay == null) idleOverlay = com.piko.agent.overlay.AgentOverlay(this@PikoAccessibilityService,
+                        object : com.piko.agent.overlay.AgentOverlay.Actions {
+                            override fun onPauseResume() {}
+                            override fun onStop() { com.piko.agent.PikoApplication.from(this@PikoAccessibilityService).speechOutput.stop() }
+                            override fun onVoice() { com.piko.agent.VoiceInputActivity.open(this@PikoAccessibilityService) }
+                            override fun onText(text: String) { com.piko.agent.service.AgentService.start(this@PikoAccessibilityService, text) }
+                            override fun onApproveConfirmation(confirmationId: String) {}
+                            override fun onDismiss() {
+                                assistantScope.launch { com.piko.agent.PikoApplication.from(this@PikoAccessibilityService).settingsRepository.update { it.copy(floatingAssistantEnabled = false) } }
+                            }
+                        }, persistent = true)
+                    idleOverlay?.show(state)
+                }
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val foreground = rootInActiveWindow?.packageName?.toString() ?: event.packageName?.toString().orEmpty()
+            val locked = getSystemService(android.app.KeyguardManager::class.java)?.isDeviceLocked == true
+            com.piko.agent.overlay.OverlaySuppressor.setSecuritySuppressed(locked || foreground.contains("permissioncontroller", true) || com.piko.agent.core.SensitiveApps.isBlocked(foreground))
+        }
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
@@ -37,11 +70,16 @@ class PikoAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        idleOverlay?.hide(); idleOverlay = null; overlayJob?.cancel()
+        com.piko.agent.overlay.OverlaySuppressor.setSecuritySuppressed(false)
         AccessibilityBridge.detach(this)
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        assistantScope.cancel()
+        idleOverlay?.hide(); idleOverlay = null; overlayJob?.cancel()
+        com.piko.agent.overlay.OverlaySuppressor.setSecuritySuppressed(false)
         AccessibilityBridge.detach(this)
         super.onDestroy()
     }

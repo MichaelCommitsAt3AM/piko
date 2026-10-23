@@ -17,6 +17,7 @@ data class PikoSettings(
     val screenshotQuality: Int = 72,
     val screenshotMaxDimension: Int = 1024,
     val overlayEnabled: Boolean = true,
+    val floatingAssistantEnabled: Boolean = false,
     val allowInsecureEndpoints: Boolean = false,
     val storeScreenshots: Boolean = false,
     val settleTimeoutMs: Long = 1800,
@@ -24,6 +25,11 @@ data class PikoSettings(
     val selectedProviderId: String = ProviderCatalog.OPENCODE_GO_ID,
     val providerConfigs: List<ProviderConfig> = listOf(ProviderCatalog.openCodeGo()),
     val onboardingComplete: Boolean = false,
+    val recognitionLanguage: String = java.util.Locale.getDefault().toLanguageTag(),
+    val spokenResponses: Boolean = false,
+    val speechRate: Float = 1f,
+    val speechVoice: String? = null,
+    val memorySuggestions: Boolean = false,
 ) {
     val selectedProvider: ProviderConfig?
         get() = providerConfigs.firstOrNull { it.id == selectedProviderId }
@@ -31,6 +37,8 @@ data class PikoSettings(
 
     fun sanitized(): PikoSettings = copy(
         retentionDays = retentionDays.coerceIn(1, 365),
+        speechRate = if (speechRate.isFinite()) speechRate.coerceIn(0.5f, 2f) else 1f,
+        recognitionLanguage = recognitionLanguage.take(64).ifBlank { java.util.Locale.getDefault().toLanguageTag() },
         maxSteps = maxSteps.coerceIn(1, 200),
         maxDurationMinutes = maxDurationMinutes.coerceIn(1, 120),
         maxCostUsd = maxCostUsd.coerceIn(0.0, 1000.0),

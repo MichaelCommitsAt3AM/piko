@@ -44,6 +44,8 @@ object AgentPromptBuilder {
 
         OPERATING RULES
         - Choose ONE action that makes concrete progress toward the goal.
+        - Prefer native_tool for supported operations before UI automation. Never assume an intent completed its downstream operation. Do not repeat a potentially accepted non-idempotent operation.
+        ${com.piko.agent.tools.ToolCatalog.prompt()}
         - Prefer elementId actions. Only use coordinates when no suitable semantic element exists. Element IDs expire after every observation; never reuse an ID from a previous step.
         - Coordinates are Android screen pixels, not screenshot pixels. The observation lists the screen size. If a screenshot is attached it may be resized; map it using the stated screenshot size.
         - Act on what is visible. If the target is not visible, scroll or navigate deliberately.

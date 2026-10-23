@@ -50,6 +50,9 @@ class AgentService : Service() {
     private var notifiedConfirmationId: String? = null
     private var startedForeground = false
     private var currentGoal: String = ""
+    private var screenQuestion: Boolean = false
+    private var workflowId: String? = null
+    private var workflowArguments: Map<String, String> = emptyMap()
     private var screenReceiver: BroadcastReceiver? = null
 
     override fun onCreate() {
@@ -86,6 +89,7 @@ class AgentService : Service() {
         }
         when (intent.action) {
             ACTION_START -> {
+                if (taskJob?.isActive == true) { updateNotification(AgentRuntime.state()); return START_NOT_STICKY }
                 currentGoal = intent.getStringExtra(EXTRA_GOAL).orEmpty().trim()
                 cleanupJob?.cancel()
                 cleanupJob = null
@@ -98,6 +102,9 @@ class AgentService : Service() {
                     updateNotification(AgentRuntime.state())
                     return START_NOT_STICKY
                 }
+                workflowId = intent.getStringExtra("workflowId")
+                workflowArguments = runCatching { com.piko.agent.core.PikoJson.decodeFromString<Map<String, String>>(intent.getStringExtra("workflowArguments") ?: "{}") }.getOrDefault(emptyMap())
+                screenQuestion = intent.getBooleanExtra("screenQuestion", false)
                 launchTask(currentGoal)
             }
             ACTION_INSTRUCT -> {
@@ -147,6 +154,37 @@ class AgentService : Service() {
         taskJob = scope.launch {
             val settings = runCatching { app.settingsRepository.current() }.getOrDefault(PikoSettings())
             runCatching { app.taskRepository.prune(settings.retentionDays) }
+            val memoryCommand = if (!screenQuestion && workflowId == null) com.piko.agent.data.MemoryCommand.parse(goal) else null
+            if (memoryCommand != null) {
+                AgentRuntime.begin(UUID.randomUUID().toString(), goal, "Local memory", "On device", 1)
+                try {
+                    val response = memoryCommand.execute(app.memoryRepository)
+                    AgentRuntime.complete(response, true, "Local repository operation completed.", AgentState.COMPLETED)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { AgentRuntime.complete(error.message ?: "Memory operation failed.", false, null, AgentState.FAILED) }
+                finally { onTaskFinished() }
+                return@launch
+            }
+            val nativePlan = if (!screenQuestion && workflowId == null) com.piko.agent.tools.NativeCommandPlanner.plan(goal) else null
+            if (nativePlan != null) {
+                val nativeProvider = settings.selectedProvider ?: com.piko.agent.model.ProviderCatalog.openCodeGo()
+                val nativeModel = nativeProvider.selectedModel ?: com.piko.agent.model.ProviderCatalog.openCodeGo().selectedModel!!
+                val nativeController = AgentController(this@AgentService, UUID.randomUUID().toString(), goal, settings, nativeProvider, nativeModel, "",
+                    app.taskRepository, app.llmClient, ObservationEngine(this@AgentService, ScreenshotEngine(this@AgentService)), ActionExecutor(this@AgentService), nativePlan = nativePlan)
+                controller = nativeController
+                try {
+                    prepareOverlay(settings)
+                    nativeController.run()
+                    val result = AgentRuntime.state()
+                    if (result.state == AgentState.COMPLETED) {
+                        com.piko.agent.assistant.AssistantConversation.append(goal, result.resultSummary.orEmpty(), result.currentApp)
+                    }
+                    if (result.state == AgentState.COMPLETED && result.verified == true) {
+                        withContext(Dispatchers.Main) { app.speechOutput.speak(result.resultSummary.orEmpty(), settings) }
+                    }
+                } finally { controller = null; onTaskFinished() }
+                return@launch
+            }
             val provider = settings.selectedProvider
             val model = provider?.selectedModel
             val taskId = UUID.randomUUID().toString()
@@ -202,25 +240,53 @@ class AgentService : Service() {
             val screenshotEngine = ScreenshotEngine(this@AgentService)
             val observationEngine = ObservationEngine(this@AgentService, screenshotEngine)
             val executor = ActionExecutor(this@AgentService)
-            val taskController = AgentController(
-                context = AccessibilityBridge.service ?: this@AgentService,
-                taskId = taskId,
-                goal = goal,
-                settings = settings,
-                provider = provider,
-                model = model,
-                apiKey = apiKey,
-                taskRepository = app.taskRepository,
-                llmClient = app.llmClient,
-                observationEngine = observationEngine,
-                actionExecutor = executor,
-            )
-            controller = taskController
+            suspend fun runController(stepGoal: String, plannedStep: com.piko.agent.workflow.WorkflowStep? = null): Boolean {
+                val taskController = AgentController(
+                    context = AccessibilityBridge.service ?: this@AgentService,
+                    taskId = UUID.randomUUID().toString(), goal = stepGoal, settings = settings,
+                    provider = provider, model = model, apiKey = apiKey,
+                    taskRepository = app.taskRepository, llmClient = app.llmClient,
+                    observationEngine = observationEngine, actionExecutor = executor,
+                    screenQuestion = screenQuestion, workflowStep = plannedStep,
+                )
+                controller = taskController
+                taskController.run()
+                val state = AgentRuntime.state()
+                if (state.state == AgentState.COMPLETED) com.piko.agent.assistant.AssistantConversation.append(stepGoal, state.resultSummary.orEmpty(), state.currentApp)
+                return state.state == AgentState.COMPLETED
+            }
             try {
                 prepareOverlay(settings)
-                taskController.run()
+                val savedWorkflow = workflowId?.let { app.database.assistantDao().workflow(it) }
+                if (workflowId != null && savedWorkflow == null) error("This workflow has been deleted.")
+                if (savedWorkflow != null) {
+                    val steps = com.piko.agent.workflow.WorkflowVariables.instantiate(com.piko.agent.core.PikoJson.decodeFromString<List<com.piko.agent.workflow.WorkflowStep>>(savedWorkflow.stepsJson), workflowArguments)
+                    val success = com.piko.agent.workflow.WorkflowEngine().run(steps,
+                        foregroundPackage = { AccessibilityBridge.service?.rootInActiveWindow?.packageName?.toString() },
+                        execute = { index, step ->
+                            val missing = step.requiredPermissions.filter {
+                                ContextCompat.checkSelfPermission(this@AgentService, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            }
+                            if (missing.isNotEmpty()) error("Workflow needs permissions: ${missing.joinToString()}")
+                            if (step.confirmation && step.kind == "ai") {
+                                if (!runController("Approve workflow reasoning step: ${step.instruction}", com.piko.agent.workflow.WorkflowStep(kind = "wait", milliseconds = 100, confirmation = true))) error("Workflow approval denied.")
+                            }
+                            val success = runController("${savedWorkflow.name} · step ${index + 1}/${steps.size}: ${step.instruction.ifBlank { step.toolId ?: step.targetText ?: step.kind }}", step)
+                            if (AgentRuntime.state().error?.contains("denied or timed out") == true) error("Workflow approval denied.")
+                            success
+                        })
+                    if (!success && AgentRuntime.state().state != AgentState.CANCELLED) {
+                        AgentRuntime.complete("Workflow stopped with an unsuccessful step. Review history before retrying.", false, null, AgentState.FAILED)
+                    }
+                } else runController(goal)
+                val outcome = AgentRuntime.state()
+                if (outcome.state == AgentState.COMPLETED && (screenQuestion || outcome.verified == true)) {
+                    withContext(Dispatchers.Main) { app.speechOutput.speak(outcome.resultSummary.orEmpty(), settings) }
+                }
             } catch (cancelled: CancellationException) {
-                // Cancellation is finalized inside the controller.
+                throw cancelled
+            } catch (error: Exception) {
+                AgentRuntime.complete(error.message ?: "Workflow failed", false, null, AgentState.FAILED, error = error.message)
             } finally {
                 controller = null
                 onTaskFinished()
@@ -269,7 +335,7 @@ class AgentService : Service() {
     }
 
     private suspend fun prepareOverlay(settings: PikoSettings) = withContext(Dispatchers.Main) {
-        if (!settings.overlayEnabled) return@withContext
+        if (!settings.overlayEnabled && !settings.floatingAssistantEnabled) return@withContext
         val manager = AgentOverlay(
             context = AccessibilityBridge.service ?: this@AgentService,
             actions = object : AgentOverlay.Actions {
@@ -282,12 +348,21 @@ class AgentService : Service() {
                     stopTask()
                 }
 
+                override fun onText(text: String) {
+                    val active = controller ?: return
+                    active.endInput("overlay-text", text)
+                }
+                override fun onTyping(active: Boolean) {
+                    if (active) controller?.beginInput("overlay-text") else controller?.endInput("overlay-text", null)
+                }
                 override fun onVoice() {
                     VoiceInputActivity.open(this@AgentService)
                 }
 
-                override fun onReviewConfirmation() {
-                    startActivity(Intent(this@AgentService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                override fun onApproveConfirmation(confirmationId: String) {
+                    if (confirmationId == AgentRuntime.state().pendingConfirmation?.id) {
+                        controller?.approveConfirmation()
+                    }
                 }
             },
         )
@@ -315,6 +390,7 @@ class AgentService : Service() {
     }
 
     private fun stopTask() {
+        (application as PikoApplication).speechOutput.stop()
         val active = controller
         if (active == null) {
             taskJob?.cancel(CancellationException("Stopped before preparation completed"))
@@ -472,10 +548,13 @@ class AgentService : Service() {
         private const val EXTRA_INSTRUCTION = "instruction"
         private const val EXTRA_GOAL = "goal"
 
-        fun start(context: Context, goal: String) {
+        fun start(context: Context, goal: String, screenQuestion: Boolean = false, workflowId: String? = null, workflowArguments: Map<String, String> = emptyMap()) {
             val intent = Intent(context, AgentService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_GOAL, goal)
+                putExtra("screenQuestion", screenQuestion)
+                putExtra("workflowId", workflowId)
+                putExtra("workflowArguments", kotlinx.serialization.json.JsonObject(workflowArguments.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString())
             }
             ContextCompat.startForegroundService(context, intent)
         }

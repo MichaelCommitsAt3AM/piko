@@ -10,9 +10,15 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 - **Primary provider:** OpenCode Go (BYO API key)
 - **Also supported:** OpenAI, Anthropic, OpenAI-compatible and custom endpoints
 
-> **Execution status in this repository:** the app compiles, the debug APK is built, and 135 JVM/Robolectric tests pass. A connected Samsung Galaxy A35 was used to verify Calculator launch, overlay lifecycle, and Settings-only screenshot protection. Other device scenarios and spoken recognition remain unverified. See [docs/TESTING.md](docs/TESTING.md) for the manual checklist and exactly what has and has not been verified.
+> **Latest verification (21 October 2026):** 165 JVM/Robolectric tests pass. Five connected-device UI tests pass on a Samsung Galaxy A35 / Android 16; two permission-dependent tests were skipped. The debug APK builds and lint passes (warnings remain); see [docs/TESTING.md](docs/TESTING.md) for lint status and remaining manual checks.
 
 ---
+
+## Assistant upgrade
+
+Open **Assistant** from the navigation drawer for voice/assistant setup, local memory, workflows and reminder schedules. Native tools and deterministic native commands extend the existing OpenCode/accessibility agent; screen questions require provider consent and use a hard read-only mode. The bottom floating assistant leads with what Piko is doing right now and supports text, voice entry, approval review and a single Stop control.
+
+**Always-on Hey Piko detection is not shipped.** Push-to-talk, a Quick Settings tile and supported default-assistant entry points are implemented. Schedules deliver reminders for user-started execution rather than background UI automation. See [assistant setup, permissions, examples and limitations](docs/ASSISTANT-SETUP.md) and the [architecture assessment](docs/ASSISTANT-IMPLEMENTATION.md).
 
 ## Features
 
@@ -20,7 +26,7 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 
 - Iterative **observe → reason → act → verify** loop with explicit states:
   `Idle`, `Preparing`, `Observing`, `Reasoning`, `Executing`, `Verifying`, `AwaitingUserConfirmation`, `Paused`, `Completed`, `Failed`, `Cancelled`.
-- Strict, versioned JSON action schema: `tap`, `long_press`, `swipe`, `scroll`, `type_text`, `clear_text`, `back`, `home`, `open_notifications`, `launch_app`, `wait`, `observe`, `request_confirmation`, `finish`, `fail`.
+- Strict, versioned JSON action schema: `tap`, `long_press`, `swipe`, `scroll`, `type_text`, `clear_text`, `back`, `home`, `open_notifications`, `launch_app`, `wait`, `observe`, `request_confirmation`, `finish`, `fail`, `native_tool`.
 - Native tool calling where the provider supports it, with structured-JSON fallback if tools are rejected.
 - Bounded retries, model/action timeouts, step limit, task-duration limit, estimated spending limit, loop detection, stale-observation rejection, and UI fingerprinting.
 - Verification after every action. Piko never treats "Android accepted the command" as success. `finish` only shows **Model-verified** when the model supplies evidence; otherwise it is reported as **Unverified**.
@@ -78,7 +84,7 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 ### Voice and task updates
 
 - **Use voice** on Home starts a task from an editable transcript.
-- **Talk** on the floating overlay, live task screen, or notification opens a visible input panel while the task waits.
+- **Talk** (microphone) on the floating assistant, live task screen, or notification opens a visible input panel while the task waits.
 - Send a correction or an additional task; pending model responses and approvals are invalidated before re-planning.
 - Recognition prefers on-device speech and falls back to the system speech service. Microphone permission is requested when used; there is no background listener.
 - Spoken recognition has not been device-tested yet.
@@ -86,8 +92,9 @@ Piko is a personal, sideloaded Android app that lets a configured AI model inspe
 ### Background operation and overlay
 
 - Foreground agent service (`dataSync`) with persistent notification controls.
-- Accessibility-service edge border and draggable floating controls (expanded/minimized) showing status, goal, action, step, approval-needed state, pause/resume and stop.
+- Accessibility-service edge border and a bottom-anchored floating assistant (expanded/minimized) that leads with the current stage, approval-needed state and a single Stop control, plus message, voice and dismiss actions.
 - Overlay controls are direct in-process calls, so they stay responsive during network requests.
+- The panel becomes touch-transparent while the agent dispatches an action, so it cannot intercept the agent's gesture.
 - If overlay permission is missing, notification controls and the app remain available.
 - Pauses when the screen locks, accessibility disconnects, or Piko's own UI is in front.
 - Does not auto-resume after process death; running tasks are marked interrupted.
@@ -186,7 +193,7 @@ For local HTTP endpoints, enable **Settings → Privacy & security → Allow ins
 7. Confirmation gates stop the loop for sensitive actions.
 8. Loop/retry/step/time/cost guards stop runaway tasks.
 9. An explicit `finish` with model-supplied evidence reports Model-verified completion; this is not independent goal verification.
-10. Pause, resume, stop and approve/deny work from the app, notification and overlay.
+10. Stop and approve/deny work from the app, notification and overlay; pause/resume work from the app and notification.
 
 ### Action schema example
 
@@ -215,16 +222,20 @@ app/src/main/java/com/piko/agent/
   accessibility/                  service, observation engine, executor, screenshots
   ai/                             provider clients/protocols, prompt builder, streaming
   agent/                          controller, runtime StateFlow, timeline
+  assistant/                      system assistant, tile, recognizer delegation, media access
+  voice/                          bounded voice sessions and TTS lifecycle
+  tools/                          native catalog, validation, resolution and deterministic plans
+  workflow/                       semantic workflows, variables, review trace, reminder scheduler
   service/                        AgentService, ProjectionService
   overlay/                        draggable WindowManager overlay + capture suppression
   ui/                             Compose theme, screens, ViewModel
-  test/                           135 unit/Robolectric tests
+  test/                           165 unit/Robolectric tests
 ```
 
 Key design choices:
 
 - **Single foreground service owns the task.** Exactly one `AgentController` can run.
-- **Room** stores tasks/steps; **DataStore** stores non-secret settings/providers; **Keystore + SharedPreferences** stores encrypted keys.
+- **Room** schema 2 stores tasks/steps, memories, workflows and schedules with a preserving migration; **DataStore** stores non-secret settings/providers; **Keystore + SharedPreferences** stores encrypted keys.
 - **`AgentRuntime`** is the process-wide observable state consumed by Compose, the overlay and the notification.
 - Observations are generated fresh for every step; element IDs never survive a new observation.
 - Provider output is untrusted: parse → validate → safety-classify → execute.
@@ -240,8 +251,8 @@ Key design choices:
 
 Current results in this environment:
 
-- **135 tests, 0 failures** across 22 suites.
-- Home smoke, overlay lifecycle, and Settings screenshot-policy instrumentation tests pass on the connected Galaxy A35.
+- **165 tests, 0 failures** across 28 suites.
+- Five Home, Assistant-hub and Settings screenshot-policy instrumentation tests pass on the connected Galaxy A35 / Android 16. Overlay and approval-notification tests were skipped because their permissions were unavailable in this run.
 - Covers action validation, parser, state machine, coordinate mapping, loop detection, retries, cancellation, sensitive-action classification, redaction, fingerprints, cost calculation, prompt construction, all three provider response dialects, endpoint routing, SSE streaming, MockWebServer request/auth/retry/tool-fallback/connection-test behavior, screenshot processing, and Room task persistence.
 - `lintDebug` passes (warnings remain, mostly version suggestions and localization notes).
 
@@ -279,7 +290,7 @@ Highlights:
 - **Task-level token context** is bounded by trimming element count/history, not by a provider-specific tokenizer.
 - **Cost data** is estimated from configured per-million prices; OpenCode Go peak/off-peak and plan pricing are not modeled exactly.
 - **MediaProjection** consent is session-scoped and must be granted again after process death/revocation.
-- Device verification is limited to the Calculator launch, overlay lifecycle, home smoke test and Settings-only screenshot protection. Spoken recognition and the other manual scenarios remain unverified.
+- Latest device verification is limited to Home, Assistant-hub and Settings-only screenshot protection. Calculator launch/overlay checks from the earlier build do not verify the new overlay behavior. Spoken recognition and the other manual scenarios remain unverified.
 - Fresh-screen checks are deliberately conservative: changing accessible content can cause an action to be withheld and replanned. Visual-only changes in custom-drawn apps are not fully detectable.
 - Credential detection and sensitive-action classification use heuristics. Model-verified completion is model-reported evidence, not independent goal verification.
 

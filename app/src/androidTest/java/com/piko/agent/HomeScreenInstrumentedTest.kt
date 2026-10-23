@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -28,14 +29,23 @@ class HomeScreenInstrumentedTest {
     }
 
     @Test fun settingsCategoriesExpandAndCollapse() {
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("Settings").performClick()
         composeRule.onNodeWithText("Permissions").performClick()
         composeRule.onNodeWithText("Accessibility control").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Permissions").performScrollTo().performClick()
         composeRule.onNodeWithText("Accessibility control").assertDoesNotExist()
+    }
+
+    @Test fun navigationDrawerSwitchesTopLevelScreens() {
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("Models").performClick()
         composeRule.onNodeWithText("The mind behind your tasks.").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
         composeRule.onNodeWithText("History").performClick()
         composeRule.onNodeWithText("All").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Open navigation").performClick()
+        composeRule.onNodeWithText("Home").performClick()
+        composeRule.onNodeWithText("A little less to do.").assertIsDisplayed()
     }
 }

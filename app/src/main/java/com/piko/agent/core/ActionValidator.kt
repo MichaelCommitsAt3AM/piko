@@ -109,6 +109,8 @@ object ActionValidator {
                 }
             }
 
+            ActionType.NATIVE_TOOL -> errors.addAll(com.piko.agent.tools.ToolCatalog.validate(action.toolId, action.parameters))
+
             ActionType.WAIT -> {
                 val ms = action.milliseconds
                 if (ms == null || ms !in 100..MAX_WAIT_MS) {

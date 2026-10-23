@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,7 +19,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,6 +50,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ModelsScreen(
     viewModel: PikoViewModel,
+    onOpenMenu: () -> Unit,
     onEditProvider: (String) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -63,10 +67,15 @@ fun ModelsScreen(
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Models", style = MaterialTheme.typography.headlineLarge)
-                Text("The mind behind your tasks.", style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenMenu, modifier = Modifier.offset(x = (-12).dp)) {
+                    Icon(Icons.Filled.Menu, contentDescription = "Open navigation")
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Models", style = MaterialTheme.typography.headlineLarge)
+                    Text("The mind behind your tasks.", style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
         item {

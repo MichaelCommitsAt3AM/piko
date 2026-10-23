@@ -54,6 +54,7 @@ data class AgentRuntimeState(
     val usage: TokenUsage = TokenUsage(),
     val pauseReason: String? = null,
     val interrupted: Boolean = false,
+    val screenHandoffRequired: Boolean = true,
 ) {
     val isActive: Boolean get() = state.isRunning || state == AgentState.PAUSED
 }
@@ -83,6 +84,7 @@ object AgentRuntime {
         providerName: String,
         modelName: String,
         maxSteps: Int,
+        screenHandoffRequired: Boolean = true,
     ) {
         nextTimelineId = 1L
         _state.value = AgentRuntimeState(
@@ -92,6 +94,7 @@ object AgentRuntime {
             providerName = providerName,
             modelName = modelName,
             maxSteps = maxSteps,
+            screenHandoffRequired = screenHandoffRequired,
             startedAtMs = System.currentTimeMillis(),
         )
     }

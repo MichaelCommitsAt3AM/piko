@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,8 +21,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,6 +56,7 @@ import com.piko.agent.ui.theme.PikoRed
 @Composable
 fun HistoryScreen(
     viewModel: PikoViewModel,
+    onOpenMenu: () -> Unit,
     onOpenTask: (String) -> Unit,
 ) {
     val tasks by viewModel.observeAllTasks().collectAsStateWithLifecycle(initialValue = emptyList())
@@ -78,13 +82,18 @@ fun HistoryScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
-                    Text("History", style = MaterialTheme.typography.headlineLarge)
-                    Text(
-                        "${tasks.size} tasks · ${tasks.sumOf { it.stepCount }} steps",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onOpenMenu, modifier = Modifier.offset(x = (-12).dp)) {
+                        Icon(Icons.Filled.Menu, contentDescription = "Open navigation")
+                    }
+                    Column {
+                        Text("History", style = MaterialTheme.typography.headlineLarge)
+                        Text(
+                            "${tasks.size} tasks · ${tasks.sumOf { it.stepCount }} steps",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
                 if (tasks.isNotEmpty()) {
                     TextButton(onClick = { deleteDialog = true }) {

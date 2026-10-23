@@ -39,9 +39,12 @@ class VoiceInputActivity : ComponentActivity() {
     private var taskId: String? = null
     private var session = UUID.randomUUID().toString()
     private var submitted = false
+    private val voiceGate = com.piko.agent.voice.VoiceSessionGate()
+    private val timeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        PikoApplication.from(this).speechOutput.stop()
         taskId = if (savedInstanceState != null) savedInstanceState.getString("taskId")
             else AgentRuntime.state().takeIf { it.isActive }?.taskId
         session = savedInstanceState?.getString("session") ?: session
@@ -52,8 +55,13 @@ class VoiceInputActivity : ComponentActivity() {
                 var status by remember { mutableStateOf("Tap the microphone or type an instruction.") }
                 var listening by remember { mutableStateOf(false) }
                 var sending by remember { mutableStateOf(false) }
+                var screenQuestion by rememberSaveable { mutableStateOf(intent.getBooleanExtra("screenQuestion", false)) }
+                var consent by rememberSaveable { mutableStateOf(false) }
+                val settings by viewModel.settings.collectAsState()
                 val scope = rememberCoroutineScope()
                 fun listen(forceSystem: Boolean = false) {
+                    timeoutHandler.removeCallbacksAndMessages(null)
+                    val token = voiceGate.begin()
                     recognizer?.destroy()
                     val local = !forceSystem && Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
                     if (!local && !SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -63,12 +71,14 @@ class VoiceInputActivity : ComponentActivity() {
                             else SpeechRecognizer.createSpeechRecognizer(this)
                         recognizer = speech
                         speech.setRecognitionListener(object : RecognitionListener {
-                            override fun onReadyForSpeech(params: Bundle?) { listening = true; status = "Listening…" }
+                            override fun onReadyForSpeech(params: Bundle?) { if (voiceGate.move(token, com.piko.agent.voice.VoiceSessionGate.State.LISTENING)) { listening = true; status = "Listening…" } }
                             override fun onBeginningOfSpeech() { }
                             override fun onRmsChanged(rmsdB: Float) { }
                             override fun onBufferReceived(buffer: ByteArray?) { }
-                            override fun onEndOfSpeech() { listening = false; status = "Transcribing…" }
+                            override fun onEndOfSpeech() { if (voiceGate.move(token, com.piko.agent.voice.VoiceSessionGate.State.TRANSCRIBING)) { listening = false; status = "Transcribing…" } }
                             override fun onError(error: Int) {
+                                if (!voiceGate.move(token, com.piko.agent.voice.VoiceSessionGate.State.ERROR)) return
+                                timeoutHandler.removeCallbacksAndMessages(null)
                                 if (local && error in setOf(
                                         SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
                                         SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
@@ -84,20 +94,31 @@ class VoiceInputActivity : ComponentActivity() {
                                 }
                             }
                             override fun onResults(results: Bundle?) {
+                                if (!voiceGate.move(token, com.piko.agent.voice.VoiceSessionGate.State.COMPLETE)) return
+                                timeoutHandler.removeCallbacksAndMessages(null)
                                 listening = false
                                 val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
                                 if (!text.isNullOrBlank()) { transcript = text.take(2000); status = "Review your instruction, then send it." }
                                 else status = "No speech recognized. Try again or type below."
                             }
-                            override fun onPartialResults(partialResults: Bundle?) { }
+                            override fun onPartialResults(partialResults: Bundle?) {
+                                if (!voiceGate.isCurrent(token)) return
+                                partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { transcript = it.take(2000) }
+                            }
                             override fun onEvent(eventType: Int, params: Bundle?) { }
                         })
+                        timeoutHandler.postDelayed({
+                            if (voiceGate.isCurrent(token)) { voiceGate.cancel(); speech.cancel(); listening = false; status = "Voice input timed out. Tap Microphone to try again." }
+                        }, 45_000)
                         status = "Starting microphone…"
                         listening = true
                         runCatching {
                             speech.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra("piko.forceExternal", forceSystem)
                                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, settings.recognitionLanguage)
                             })
                         }.onFailure { listening = false; status = "Could not start the microphone. You can type below." }
                     }
@@ -109,7 +130,7 @@ class VoiceInputActivity : ComponentActivity() {
                     if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) listen()
                     else permission.launch(Manifest.permission.RECORD_AUDIO)
                 }
-                LaunchedEffect(Unit) { startListening() }
+                LaunchedEffect(Unit) { if (intent.getBooleanExtra("useVoice", true)) startListening() }
                 LaunchedEffect(Unit) { viewModel.messages.collect { status = it; sending = false } }
                 Surface(shape = MaterialTheme.shapes.large) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -120,18 +141,26 @@ class VoiceInputActivity : ComponentActivity() {
                             label = { Text("Instruction") }, minLines = 3, maxLines = 5,
                             modifier = Modifier.fillMaxWidth(), enabled = !sending,
                         )
+                        if (taskId == null) {
+                            Row { Checkbox(screenQuestion, { screenQuestion = it; consent = false }); Text("Ask about the screen (read-only)") }
+                            if (screenQuestion) {
+                                Text("Return to the target app before opening this panel. Fresh permitted screen text${if (settings.sendScreenshots) " and supported screenshots" else ""} will be sent to ${settings.selectedProvider?.name ?: "the selected provider"}. Screenshots are not saved.")
+                                Row { Checkbox(consent, { consent = it }); Text("I authorize sharing this screen for this question.") }
+                            }
+                        }
                         Text(
                             "Piko uses on-device speech when available; otherwise your system speech service may process audio online. The task waits while this panel is open.",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { if (listening) { recognizer?.cancel(); listening = false; status = "Microphone stopped." } else startListening() }, enabled = !sending) {
+                            OutlinedButton(onClick = { if (listening) { voiceGate.cancel(); recognizer?.cancel(); listening = false; status = "Microphone stopped." } else startListening() }, enabled = !sending) {
                                 Text(if (listening) "Stop mic" else "Microphone")
                             }
                             TextButton(onClick = { finish() }, enabled = !sending) { Text("Cancel") }
                             Button(
-                                enabled = transcript.isNotBlank() && !sending,
+                                enabled = transcript.isNotBlank() && !sending && (!screenQuestion || consent),
                                 onClick = {
+                                    voiceGate.cancel()
                                     recognizer?.cancel()
                                     listening = false
                                     val target = taskId
@@ -145,14 +174,18 @@ class VoiceInputActivity : ComponentActivity() {
                                         }
                                     } else {
                                         val previous = AgentRuntime.state().taskId
-                                        if (viewModel.startTask(transcript)) {
+                                        if (viewModel.startTask(transcript, screenQuestion)) {
                                             sending = true
                                             scope.launch {
                                                 val started = withTimeoutOrNull(10_000) { AgentRuntime.state.first { it.taskId != previous } }
                                                 if (started != null && started.isActive) {
                                                     delay(500)
-                                                    startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                                    if (!screenQuestion && started.screenHandoffRequired) startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                                                     finish()
+                                                } else if (started?.state == com.piko.agent.core.AgentState.COMPLETED) {
+                                                    status = started.resultSummary ?: "Completed."
+                                                    sending = false
+                                                    transcript = ""
                                                 } else {
                                                     status = AgentRuntime.state().error ?: "The task did not start. Open Piko for details."
                                                     sending = false
@@ -174,15 +207,16 @@ class VoiceInputActivity : ComponentActivity() {
         outState.putString("session", session)
         super.onSaveInstanceState(outState)
     }
-    override fun onStop() { recognizer?.cancel(); super.onStop() }
+    override fun onStop() { voiceGate.cancel(); timeoutHandler.removeCallbacksAndMessages(null); recognizer?.cancel(); super.onStop() }
     override fun onDestroy() {
+        timeoutHandler.removeCallbacksAndMessages(null)
         recognizer?.destroy()
         if (!isChangingConfigurations && !submitted) taskId?.let { AgentService.endInput(this, it, session, null) }
         super.onDestroy()
     }
     companion object {
-        fun open(context: Context) {
-            context.startActivity(Intent(context, VoiceInputActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        fun open(context: Context, screenQuestion: Boolean = false) {
+            context.startActivity(Intent(context, VoiceInputActivity::class.java).putExtra("screenQuestion", screenQuestion).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
     }
 }

@@ -25,6 +25,7 @@ data class ExecutionResult(
     val finishedAtMs: Long = System.currentTimeMillis(),
     val acceptedByAndroid: Boolean = false,
     val launchPackage: String? = null,
+    val resultVerified: Boolean = false,
 )
 
 /**
@@ -68,6 +69,7 @@ class ActionExecutor(private val context: Context) {
                         "Opened the notification shade.",
                     )
                     ActionType.LAUNCH_APP -> launchApp(action)
+                    ActionType.NATIVE_TOOL -> com.piko.agent.tools.NativeToolRegistry(context).execute(action)
                     ActionType.WAIT -> {
                         delay((action.milliseconds ?: 500).coerceIn(100, 10_000))
                         ExecutionResult(true, "Waited ${action.milliseconds ?: 500} ms.", acceptedByAndroid = true)
@@ -386,7 +388,7 @@ class ActionExecutor(private val context: Context) {
         )
     }
 
-    private fun launchApp(action: AgentAction): ExecutionResult {
+    internal fun launchApp(action: AgentAction): ExecutionResult {
         val packageManager = context.packageManager
         val packageName = action.packageName?.trim()?.takeIf { it.isNotBlank() }
             ?: findPackageByLabel(action.appName)

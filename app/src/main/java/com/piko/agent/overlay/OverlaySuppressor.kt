@@ -11,8 +11,15 @@ import kotlinx.coroutines.withContext
 object OverlaySuppressor {
     private val captureMutex = Mutex()
     @Volatile private var controller: ((Boolean) -> Unit)? = null
-    @Volatile var isSuppressed = false
-        private set
+    @Volatile private var captureSuppressed = false
+    @Volatile private var securitySuppressed = false
+    val isSuppressed: Boolean get() = captureSuppressed || securitySuppressed
+
+    /** Permission/authentication surfaces must remain unobscured even after screenshot cleanup. */
+    fun setSecuritySuppressed(value: Boolean) {
+        securitySuppressed = value
+        controller?.invoke(!isSuppressed)
+    }
 
     fun register(controller: (Boolean) -> Unit) {
         this.controller = controller
@@ -26,15 +33,15 @@ object OverlaySuppressor {
         if (controller == null) return@withLock block()
         try {
             withContext(Dispatchers.Main) {
-                isSuppressed = true
+                captureSuppressed = true
                 controller?.invoke(false)
             }
             delay(140)
             block()
         } finally {
             withContext(NonCancellable + Dispatchers.Main) {
-                isSuppressed = false
-                controller?.invoke(true)
+                captureSuppressed = false
+                controller?.invoke(!securitySuppressed)
             }
         }
     }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -55,6 +57,7 @@ import com.piko.agent.ui.components.formatTimestamp
 @Composable
 fun HomeScreen(
     viewModel: PikoViewModel,
+    onOpenMenu: () -> Unit,
     onStartTask: (String?) -> Unit,
     onOpenTask: () -> Unit,
     onOpenHistoryTask: (String) -> Unit,
@@ -68,7 +71,7 @@ fun HomeScreen(
     var goal by rememberSaveable { mutableStateOf("") }
     val active = runtime.state.isRunning || runtime.state == AgentState.PAUSED
     val hasModel = home.selectedProvider?.selectedModel != null && home.hasSelectedKey
-    val ready = hasModel && home.permissions.accessibilityEnabled
+    val ready = (hasModel && home.permissions.accessibilityEnabled) || com.piko.agent.tools.NativeCommandPlanner.plan(goal) != null || com.piko.agent.data.MemoryCommand.parse(goal) != null
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -77,8 +80,15 @@ fun HomeScreen(
     ) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Piko", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                TextButton(onClick = onOpenModels, modifier = Modifier.width(180.dp)) {
+                IconButton(onClick = onOpenMenu, modifier = Modifier.offset(x = (-8).dp)) {
+                    Icon(Icons.Filled.Menu, contentDescription = "Open navigation")
+                }
+                Text(
+                    "Piko",
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onOpenModels, modifier = Modifier.width(170.dp)) {
                     Text(
                         home.selectedProvider?.selectedModel?.label ?: "Choose a model",
                         maxLines = 1,

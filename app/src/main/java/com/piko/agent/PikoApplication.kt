@@ -17,10 +17,12 @@ class PikoApplication : Application() {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val database: PikoDatabase by lazy { PikoDatabase.get(this) }
+    val memoryRepository by lazy { com.piko.agent.data.MemoryRepository(database.assistantDao()) }
     val taskRepository: TaskRepository by lazy { TaskRepository(database) }
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(this) }
     val credentialStore: SecureCredentialStore by lazy { SecureCredentialStore(this) }
     val llmClient: LlmClient by lazy { LlmClient() }
+    val speechOutput by lazy { com.piko.agent.voice.SpeechOutput(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -31,6 +33,7 @@ class PikoApplication : Application() {
                 val settings = settingsRepository.current()
                 taskRepository.prune(settings.retentionDays)
                 taskRepository.markOrphansInterrupted()
+                com.piko.agent.workflow.WorkflowScheduler(this@PikoApplication).restore(database.assistantDao())
             }
         }
     }

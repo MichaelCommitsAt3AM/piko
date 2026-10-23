@@ -166,6 +166,7 @@ object ActionSchema {
         {"version":1,"type":"home"}
         {"version":1,"type":"open_notifications"}
         {"version":1,"type":"launch_app","packageName":"com.android.settings"}
+        {"version":1,"type":"native_tool","toolId":"media_volume","parameters":{"percent":30}}
         {"version":1,"type":"wait","milliseconds":500}
         {"version":1,"type":"observe","includeScreenshot":true}
         {"version":1,"type":"request_confirmation","summary":"Send this message?","pendingAction":{"version":1,"type":"tap","elementId":"element_8"}}

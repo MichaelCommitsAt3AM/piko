@@ -76,6 +76,11 @@ object SensitiveActionClassifier {
 
     fun classify(context: Context): Assessment {
         val action = context.action
+        if (action.type == ActionType.NATIVE_TOOL) {
+            val tool = com.piko.agent.tools.ToolCatalog.tools.firstOrNull { it.id == action.toolId }
+                ?: return Assessment(Level.BLOCK, Category.NONE, "Unknown native tool.")
+            return if (tool.confirmation) confirm(Category.EXTERNAL_SHARE, "Review ${tool.description} before proceeding.") else clean()
+        }
         if (action.type in setOf(
                 ActionType.WAIT, ActionType.OBSERVE, ActionType.FINISH, ActionType.FAIL,
                 ActionType.BACK, ActionType.HOME, ActionType.OPEN_NOTIFICATIONS,

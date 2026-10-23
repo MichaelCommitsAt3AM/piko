@@ -91,6 +91,8 @@ class LoopDetector(
             append(action.text.orEmpty().take(80))
             append('|')
             append(action.packageName.orEmpty())
+            append(action.toolId.orEmpty())
+            append(action.parameters.toString())
         }
     }
 

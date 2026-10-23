@@ -18,6 +18,16 @@ class OverlaySuppressorTest {
     @Before fun setup() { Dispatchers.setMain(dispatcher); OverlaySuppressor.register(callback) }
     @After fun cleanup() { OverlaySuppressor.unregister(callback); Dispatchers.resetMain() }
 
+    @Test fun permissionDialogsRemainUnobscuredAfterCaptureCleanup() = runTest(dispatcher) {
+        OverlaySuppressor.setSecuritySuppressed(true)
+        try {
+            OverlaySuppressor.suppressed { }
+            assertTrue(OverlaySuppressor.isSuppressed)
+            assertEquals(false, changes.last())
+        } finally { OverlaySuppressor.setSecuritySuppressed(false) }
+        assertFalse(OverlaySuppressor.isSuppressed)
+        assertEquals(true, changes.last())
+    }
     @Test fun cancellationDuringSettleDelayRestoresControls() = runTest(dispatcher) {
         var captured = false
         val job = launch { OverlaySuppressor.suppressed { captured = true } }
